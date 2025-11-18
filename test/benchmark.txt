@@ -1,0 +1,44 @@
+## 1 (BFGS vs Fides)
+BenchmarkTools.Trial: 10000 samples with 1 evaluation per sample.
+ Range (min … max):  83.458 μs …   6.529 ms  ┊ GC (min … max): 0.00% … 97.79%
+ Time  (median):     88.209 μs               ┊ GC (median):    0.00%
+ Time  (mean ± σ):   94.610 μs ± 101.105 μs  ┊ GC (mean ± σ):  3.92% ±  3.99%
+
+   █▆ ▁                                                         
+  ▄████▇▆▆▆▄▄▃▃▂▂▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁ ▂
+  83.5 μs         Histogram: frequency by time          144 μs <
+
+ Memory estimate: 99.89 KiB, allocs estimate: 1906.
+
+BenchmarkTools.Trial: 872 samples with 1 evaluation per sample.
+ Range (min … max):  4.925 ms …  11.974 ms  ┊ GC (min … max): 0.00% … 50.29%
+ Time  (median):     5.464 ms               ┊ GC (median):    0.00%
+ Time  (mean ± σ):   5.733 ms ± 768.156 μs  ┊ GC (mean ± σ):  5.92% ±  9.96%
+
+     ▂▅▇█▇▄▅▃▇▇▆▆▆▁                                            
+  ▃▄███████████████▇█▆▆▆▄▂▁▃▁▁▃▂▁▁▂▁▁▁▁▁▁▁▁▁▁▂▁▃▅▅▄▆▆▇▆▄▇▆▃▅▃ ▄
+  4.92 ms         Histogram: frequency by time        7.46 ms <
+
+ Memory estimate: 6.35 MiB, allocs estimate: 169206.
+
+## 2 (Fides only)
+
+BenchmarkTools.Trial: 2291 samples with 1 evaluation per sample.
+ Range (min … max):  1.924 ms …  17.662 ms  ┊ GC (min … max): 0.00% … 87.65%
+ Time  (median):     2.033 ms               ┊ GC (median):    0.00%
+ Time  (mean ± σ):   2.179 ms ± 809.324 μs  ┊ GC (mean ± σ):  6.51% ± 12.01%
+
+  ▇█▇▄                                                         
+  █████▄▁▃▁▁▁▃▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▃▄▅▇██ █
+  1.92 ms      Histogram: log(frequency) by time      5.95 ms <
+
+  BenchmarkTools.Trial: 10000 samples with 1 evaluation per sample.
+ Range (min … max):  48.208 μs …  6.698 ms  ┊ GC (min … max): 0.00% … 98.33%
+ Time  (median):     51.125 μs              ┊ GC (median):    0.00%
+ Time  (mean ± σ):   53.916 μs ± 82.178 μs  ┊ GC (mean ± σ):  3.09% ±  2.34%
+
+    ▅█▅▂▁▁                                                     
+  ▂▆████████▇▇▆▅▅▄▄▄▃▃▃▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▁▂▂▂▂▂▂▂▂ ▃
+  48.2 μs         Histogram: frequency by time        74.1 μs <
+
+ Memory estimate: 46.78 KiB, allocs estimate: 1405.

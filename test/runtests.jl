@@ -1,23 +1,42 @@
 include("../src/Fides.jl")
-using .Fides, ForwardDiff, DifferentiationInterface, Enzyme, Optimization, OptimizationOptimJL
-using Profile
+using ForwardDiff, DifferentiationInterface, Optimization, OptimizationOptimJL
+using .Fides: FidesProblem, BFGSUpdate, TwoDimSubspace, solve, analyze_result
+using LinearAlgebra
 
 # Rosenbrock function with bounds
 f(x) = 100*(x[2] - x[1]^2)^2 + (1 - x[1])^2
 
-prob = FidesProblem(f, [-1.2, 1.5], AutoEnzyme(); 
+prob = FidesProblem(f, [-1.2, 1.5], AutoForwardDiff(); 
                    lb=[-2.0, -2.0], ub=[2.0, 2.0])
 
+# Test with verbose output
+options = Fides.TrustRegionOptions(verbose=true, maxiter=100)
+result1 = Fides.solve(prob, BFGSUpdate(), TwoDimSubspace(); options=options)
 
-optfunc = OptimizationFunction((x,_) -> f(x), AutoForwardDiff())
-optprob = Optimization.OptimizationProblem(optfunc, [-1.2, 1.5], 
-                                          lb=[-2.0, -2.0], ub=[2.0, 2.0])
+println("\n=== Final Result ===")
+println("x = ", result1.x)
+println("f(x) = ", result1.fx)
+println("Expected x = [1.0, 1.0]")
+println("Expected f(x) = 0.0")
+println("Gradient norm: ", norm(result1.gx, Inf))
+println("Converged: ", result1.converged)
+println("Reason: ", result1.convergence_reason)
 
-# Solve with different configurations
+# Also try with exact Hessian to see if it's a BFGS issue
+println("\n=== Testing with Exact Hessian ===")
+result2 = Fides.solve(prob, Fides.ExactHessian(), TwoDimSubspace(); options=options)
+println("x = ", result2.x)
+println("f(x) = ", result2.fx)
+
+# Test different subproblem solvers
+println("\n=== Testing with CGSubspace ===")
+result3 = Fides.solve(prob, BFGSUpdate(), Fides.CGSubspace(); options=options)
+println("x = ", result3.x)
+println("f(x) = ", result3.fx)
+
 using BenchmarkTools
-@benchmark Optimization.solve($optprob, BFGS())
-@benchmark Fides.solve($prob, BFGSUpdate(), TwoDimSubspace())
-result1 = Fides.solve($prob, BFGSUpdate(), TwoDimSubspace())
+
+#@benchmark Fides.solve($prob, BFGSUpdate(), TwoDimSubspace())
 
 # Analyze results
 analyze_result(result1)

@@ -4,35 +4,51 @@
 
 function update_hessian!(state::TrustRegionState, ::BFGSUpdate, f, adtype)
     s = state.step_reflected
-    y = state.g_trial - state.gx
+
+    # Compute gradient difference
+    y = state.Δg
+    y .= gx_trial(state) .- gx(state)
     sy = dot(s, y)
     T = eltype(s)
     
     if sy > eps(T) * norm(s) * norm(y)
-        Hs = state.Hx * s
-        sHs = dot(s, Hs)
+        H = state.Hx_approx  # Access approximation directly
+        mul!(state.Hs, H, s)
+        sHs = dot(s, state.Hs)
         
         if sHs > eps(T)
-            state.Hx .-= (Hs * Hs') ./ sHs
-            state.Hx .+= (y * y') ./ sy
+            # In-place BFGS update
+            BLAS.ger!(-one(T)/sHs, state.Hs, state.Hs, H)
+            BLAS.ger!(one(T)/sy, y, y, H)
         end
     end
 end
 
 function update_hessian!(state::TrustRegionState, ::SR1Update, f, adtype)
     s = state.step_reflected
-    y = state.g_trial - state.gx
-    Hs = state.Hx * s
-    r = y - Hs
+    
+    # Compute gradient difference
+    y = state.Δg
+    y .= gx_trial(state) .- gx(state)
+    
+    H = state.Hx_approx  # Access approximation directly
+    mul!(state.Hs, H, s)
+    
+    # Compute r = y - Hs in place (reuse Δg)
+    r = state.Δg
+    @. r = y - state.Hs
+    
     rs = dot(r, s)
     T = eltype(s)
     
     if abs(rs) > eps(T) * norm(r) * norm(s)
-        state.Hx .+= (r * r') ./ rs
+        # In-place SR1 update
+        BLAS.ger!(one(T)/rs, r, r, H)
     end
 end
 
 function update_hessian!(state::TrustRegionState, ::ExactHessian, f, adtype)
-    hessian!(f, state.Hx, adtype, state.x)
+    # Compute exact Hessian using DiffResults
+    hessian!(f, state.diff_result, adtype, state.x)
     state.h_evals += 1
 end

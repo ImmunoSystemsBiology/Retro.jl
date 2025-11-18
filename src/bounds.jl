@@ -14,23 +14,22 @@ function project_bounds(x::AbstractVector, lb, ub)
 end
 
 function update_active_set!(state::TrustRegionState{T}, options) where T
-    x, g = state.x, state.gx
+    x = state.x
+    g = gx(state)  # Use accessor
     lb, ub = state.lb, state.ub
     
-    fill!(state.active_set, false)
-    
-    # Mark variables active if at bounds with appropriate gradient sign
-    for i in eachindex(x)
+    @inbounds for i in eachindex(x)
+        is_active = false
+        
         if lb !== nothing && x[i] ≈ lb[i] && g[i] > 0
-            state.active_set[i] = true
+            is_active = true
         elseif ub !== nothing && x[i] ≈ ub[i] && g[i] < 0
-            state.active_set[i] = true
+            is_active = true
         end
+        
+        state.active_set[i] = is_active
+        state.gx_free[i] = is_active ? zero(T) : g[i]
     end
-    
-    # Compute free gradient (zero for active variables)
-    state.gx_free .= state.gx
-    state.gx_free[state.active_set] .= zero(T)
 end
 
 function apply_reflective_bounds!(state::TrustRegionState, options)

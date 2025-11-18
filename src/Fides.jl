@@ -2,6 +2,8 @@ module Fides
 
 using LinearAlgebra
 using DifferentiationInterface
+using StaticArrays
+using DiffResults
 using ForwardDiff  # For fallback AD backend
 
 include("types.jl")

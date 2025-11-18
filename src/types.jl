@@ -124,46 +124,110 @@ end
 # Internal State
 # ============================================================================
 
-mutable struct TrustRegionState{T<:Real, VT<:AbstractVector{T}, MT<:AbstractMatrix{T}}
-    x::VT                     # Current iterate
-    fx::T                     # Function value at x
-    gx::VT                    # Gradient at x
-    gx_free::VT              # Gradient projected onto free variables
-    Hx::MT                    # Hessian/approximation at x
-    tr_radius::T             # Trust region radius
+# ============================================================================
+# Optimized State with DiffResults
+# ============================================================================
+
+mutable struct TrustRegionState{T<:Real, VT<:AbstractVector{T}, MT<:Union{AbstractMatrix{T}, Nothing}}
+    # Current iterate
+    x::VT
+    
+    # DiffResults buffer - stores f(x), ∇f(x), and optionally H(x)
+    # For ExactHessian: HessianResult (has f, g, H)
+    # For BFGS/SR1: GradientResult (has f, g only)
+    diff_result::DiffResults.DiffResult
+    
+    # Hessian approximation (only for quasi-Newton)
+    # For ExactHessian: nothing (use diff_result)
+    # For BFGS/SR1: stores approximation
+    Hx_approx::MT
+    
+    tr_radius::T
     
     # Bound constraints
-    lb::Union{VT, Nothing}   # Lower bounds
-    ub::Union{VT, Nothing}   # Upper bounds
-    active_set::BitVector    # Active constraints
+    lb::Union{VT, Nothing}
+    ub::Union{VT, Nothing}
+    active_set::BitVector
+    gx_free::VT
     
-    # Iteration counters
+    # Counters
     iter::Int
     f_evals::Int
     g_evals::Int
     h_evals::Int
     
-    # Workspace vectors
+    # Workspace
     step::VT
     step_reflected::VT
     x_trial::VT
-    g_trial::VT
+    diff_result_trial::DiffResults.DiffResult
     Hg::VT
     
-    function TrustRegionState(x0::VT, fx0::T, gx0::VT, Hx0::MT, tr_radius::T,
-                             lb::Union{VT, Nothing}, ub::Union{VT, Nothing}) where {T<:Real, VT<:AbstractVector{T}, MT<:AbstractMatrix{T}}
-        n = length(x0)
-        step = similar(x0)
-        step_reflected = similar(x0)
-        x_trial = similar(x0)
-        g_trial = similar(x0)
-        gx_free = similar(x0)
-        Hg = similar(x0)
-        active_set = BitVector(undef, n)
-        
-        new{T, VT, MT}(copy(x0), fx0, copy(gx0), gx_free, copy(Hx0), tr_radius,
-                       lb === nothing ? nothing : copy(lb),
-                       ub === nothing ? nothing : copy(ub),
-                       active_set, 0, 1, 1, 0, step, step_reflected, x_trial, g_trial, Hg)
+    Hs::VT
+    Δg::VT
+    last_step_norm::T
+end
+
+# ============================================================================
+# Convenience Accessors - Query from DiffResult
+# ============================================================================
+
+"""Get current function value"""
+@inline fx(state::TrustRegionState) = DiffResults.value(state.diff_result)
+
+"""Get current gradient (reference, not copy)"""
+@inline gx(state::TrustRegionState) = DiffResults.gradient(state.diff_result)
+
+"""Get current Hessian or approximation"""
+@inline Hx(state::TrustRegionState{T, VT, MT}) where {T, VT<:AbstractVector{T}, MT<:AbstractMatrix{T}} = state.Hx_approx
+
+function Hx(state::TrustRegionState{T, VT, Nothing}) where {T, VT<:AbstractVector{T}}
+    return DiffResults.hessian(state.diff_result)  # Exact Hessian
+end
+
+"""Get trial point function value"""
+@inline fx_trial(state::TrustRegionState) = DiffResults.value(state.diff_result_trial)
+
+"""Get trial point gradient"""
+@inline gx_trial(state::TrustRegionState) = DiffResults.gradient(state.diff_result_trial)
+
+function TrustRegionState(
+    x0::VT,
+    diff_result_init::DiffResults.DiffResult,
+    Hx_approx_init::MT,
+    tr_radius::T,
+    lb::Union{VT, Nothing},
+    ub::Union{VT, Nothing}
+) where {T<:Real, VT<:AbstractVector{T}, MT<:Union{AbstractMatrix{T}, Nothing}}
+    n = length(x0)
+    
+    # Workspace
+    step = zeros(T, n)
+    step_reflected = zeros(T, n)
+    x_trial = similar(x0)
+    gx_free = similar(x0)
+    Hs = similar(x0)
+    Hg = similar(x0)
+    Δg = similar(x0)
+    active_set = falses(n)
+    
+    # Trial point DiffResult (same type as main)
+    if Hx_approx_init !== nothing
+        # Quasi-Newton: use GradientResult
+        diff_result_trial = DiffResults.GradientResult(x0)
+    else
+        # Exact Hessian: use HessianResult
+        diff_result_trial = DiffResults.HessianResult(x0)
     end
+    
+    TrustRegionState{T, VT, MT}(
+        copy(x0),
+        diff_result_init,
+        Hx_approx_init,
+        tr_radius,
+        lb, ub, active_set, gx_free,
+        0, 1, 1, 0,  # Counters
+        step, step_reflected, x_trial, diff_result_trial, Hg,
+        Hs, Δg, zero(T)
+    )
 end

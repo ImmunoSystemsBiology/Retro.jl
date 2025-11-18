@@ -9,263 +9,344 @@ function solve_subproblem!(
     solver(state)
 end
 
+# ============================================================================
+# 2D Subspace Solver
+# ============================================================================
+
 function (::TwoDimSubspace)(state::TrustRegionState{T}) where {T<:Real}
-    d1, d2, g1, g2, h11, h22, h12, tr_radius = init_2d_trust_region!(state)
-
-    # Solve exactly using eigenvalue method
-    alpha, beta = solve_2d_trust_region(g1, g2, h11, h22, h12, tr_radius)
-    
-    state.step .= alpha .* d1 .+ beta .* d2
-    
-    # Zero out steps for active variables
-    state.step[state.active_set] .= zero(T)
-end
-
-function (solver::CGSubspace)(state::TrustRegionState)
-    # Conjugate Gradient using Steihaug's method
-    steihaug_cg!(state, solver.maxiter)
-end
-
-function (::FullSpace)(state::TrustRegionState)
-    # Full space solver using exact eigenvalue method
-    full_space_solver!(state)
-end
-
-function init_2d_trust_region!(state::TrustRegionState{T}) where T<:Real
-    g_free = state.gx_free
-    H = state.Hx
+    g = gx(state)
+    H = Hx(state)
     tr_radius = state.tr_radius
+    n = length(g)
     
+    # Use free gradient
+    g_free = state.gx_free
     gnorm = norm(g_free)
-    if gnorm == 0
-        fill!(state.step, zero(T))
+    
+    if gnorm < eps(T)
+        state.step .= zero(T)
+        state.last_step_norm = zero(T)
         return
     end
     
-    # First direction: steepest descent (free gradient)
+    # First direction: steepest descent (normalized)
     d1 = -g_free ./ gnorm
     
-    # Second direction: Newton direction (if possible)
-    state.Hg .= H * g_free
+    # Compute Hg for second direction
+    mul!(state.Hg, H, g_free)
     Hg_norm = norm(state.Hg)
     
+    # Second direction: Newton-like (normalized)
     if Hg_norm > eps(T)
         d2 = -state.Hg ./ Hg_norm
     else
-        # Use random direction orthogonal to d1
-        d2 = randn(T, length(g_free))
-        d2 .-= dot(d2, d1) .* d1
-        d2 ./= norm(d2)
-    end
-    
-    # Solve 2D subproblem in span(d1, d2)
-    # min g^T(α*d1 + β*d2) + 0.5*(α*d1 + β*d2)^T*H*(α*d1 + β*d2)
-    # subject to α² + β² ≤ Δ²
-    
-    g1 = dot(g_free, d1)
-    g2 = dot(g_free, d2)
-    h11 = dot(d1, H * d1)
-    h22 = dot(d2, H * d2) 
-    h12 = dot(d1, H * d2)
-
-    return d1, d2, g1, g2, h11, h22, h12, tr_radius
-end
-
-function solve_2d_trust_region(g1, g2, h11, h22, h12, tr_radius)
-    # Solve 2D trust region subproblem exactly
-    # Form the 2x2 Hessian
-    H2d = [h11 h12; h12 h22]
-    g2d = [g1; g2]
-    
-    try
-        # Try Newton step first
-        step_newton = -H2d \ g2d
-        if norm(step_newton) ≤ tr_radius
-            return step_newton[1], step_newton[2]
-        end
-    catch
-        # Hessian might be singular
-    end
-    
-    # Solve constrained problem using Lagrange multipliers
-    # (H + λI)s = -g, ||s|| = Δ
-    
-    function secular(lambda)
-        try
-            H_reg = H2d + lambda * I
-            s = -H_reg \ g2d
-            return norm(s)^2 - tr_radius^2
-        catch
-            return Inf
-        end
-    end
-    
-    # Find lambda using bisection
-    lambda_low = 0.0
-    lambda_high = 100.0
-    
-    while secular(lambda_high) > 0
-        lambda_high *= 2
-    end
-    
-    for _ in 1:50  # Bisection iterations
-        lambda_mid = (lambda_low + lambda_high) / 2
-        if abs(secular(lambda_mid)) < 1e-12
-            break
-        end
-        if secular(lambda_mid) > 0
-            lambda_low = lambda_mid
+        # Fallback: use orthogonal direction
+        d2 = similar(d1)
+        d2 .= zero(T)
+        if n >= 2
+            d2[1] = -d1[2]
+            d2[2] = d1[1]
         else
-            lambda_high = lambda_mid
+            d2[1] = one(T)
+        end
+        d2_norm = norm(d2)
+        if d2_norm > eps(T)
+            d2 ./= d2_norm
         end
     end
     
-    lambda = (lambda_low + lambda_high) / 2
-    s = -(H2d + lambda * I) \ g2d
-    return s[1], s[2]
-end
-
-function steihaug_cg!(state::TrustRegionState{T}, maxiter::Int) where T
-    g_free = state.gx_free
-    H = state.Hx
-    tr_radius = state.tr_radius
-    
-    fill!(state.step, zero(T))
-    
-    if norm(g_free) == 0
+    # Orthogonalize d2 with respect to d1 (Gram-Schmidt)
+    d2 .-= dot(d2, d1) .* d1
+    d2_norm = norm(d2)
+    if d2_norm > eps(T)
+        d2 ./= d2_norm
+    else
+        # Directions are parallel, use only d1 (steepest descent)
+        # Step length: min of Cauchy point or trust region radius
+        gHg = dot(g_free, state.Hg)
+        if gHg > eps(T)
+            alpha_cauchy = gnorm^2 / gHg
+        else
+            alpha_cauchy = tr_radius
+        end
+        alpha = min(alpha_cauchy, tr_radius)
+        
+        state.step .= alpha .* d1
+        state.step[state.active_set] .= zero(T)
+        state.last_step_norm = alpha
         return
     end
     
-    # Initialize CG
-    r = copy(g_free)  # residual
-    p = -r            # search direction
-    rsold = dot(r, r)
+    # Project gradient and Hessian onto 2D subspace
+    g1 = dot(g_free, d1)
+    g2 = dot(g_free, d2)
     
-    for i in 1:maxiter
-        Hp = H * p
-        pHp = dot(p, Hp)
-        
-        if pHp ≤ 0
-            # Negative curvature detected
-            # Find intersection with trust region boundary
-            step_norm = norm(state.step)
-            alpha = solve_quadratic_tr(state.step, p, tr_radius)
-            state.step .+= alpha .* p
-            break
-        end
-        
-        alpha = rsold / pHp
-        state.step .+= alpha .* p
-        
-        # Check trust region constraint
-        if norm(state.step) ≥ tr_radius
-            # Backtrack to trust region boundary
-            state.step .-= alpha .* p
-            alpha = solve_quadratic_tr(state.step, p, tr_radius)
-            state.step .+= alpha .* p
-            break
-        end
-        
-        r .+= alpha .* Hp
-        rsnew = dot(r, r)
-        
-        if sqrt(rsnew) < 1e-10 * norm(g_free)
-            break
-        end
-        
-        beta = rsnew / rsold
-        p .= -r .+ beta .* p
-        rsold = rsnew
-    end
+    # Compute Hessian in 2D subspace
+    Hd1 = similar(d1)
+    Hd2 = similar(d2)
+    mul!(Hd1, H, d1)
+    mul!(Hd2, H, d2)
     
-    # Zero out steps for active variables
+    h11 = dot(d1, Hd1)
+    h22 = dot(d2, Hd2)
+    h12 = dot(d1, Hd2)
+    
+    # Solve 2D trust region subproblem
+    alpha, beta = solve_2d_trust_region(g1, g2, h11, h22, h12, tr_radius)
+    
+    # Reconstruct step in full space
+    state.step .= alpha .* d1 .+ beta .* d2
+    
+    # Cache step norm BEFORE zeroing out active variables
+    state.last_step_norm = norm(state.step)
+    
+    # Zero out steps for active variables (shouldn't be needed if g_free is correct)
     state.step[state.active_set] .= zero(T)
 end
 
-function solve_quadratic_tr(s, p, tr_radius)
-    # Solve ||s + α*p||² = tr_radius² for α ≥ 0
+# ============================================================================
+# 2D Trust Region Solver (Exact)
+# ============================================================================
+
+function solve_2d_trust_region(g1::T, g2::T, h11::T, h22::T, h12::T, tr_radius::T) where T<:Real
+    # Check for zero gradient
+    g_norm_2d = sqrt(g1^2 + g2^2)
+    if g_norm_2d < eps(T)
+        return zero(T), zero(T)
+    end
+    
+    # Try unconstrained Newton step first
+    det_H = h11 * h22 - h12 * h12
+    
+    if abs(det_H) > eps(T) * max(abs(h11), abs(h22), one(T))
+        # Solve 2x2 system: H * s = -g
+        inv_det = one(T) / det_H
+        s1 = -inv_det * (h22 * g1 - h12 * g2)
+        s2 = -inv_det * (-h12 * g1 + h11 * g2)
+        
+        # Check if Newton step is within trust region
+        s_norm_sq = s1^2 + s2^2
+        if s_norm_sq ≤ tr_radius^2
+            return s1, s2
+        end
+    end
+    
+    # Newton step outside trust region or H singular
+    # Scale Newton step (or gradient if H singular) to trust region boundary
+    
+    # Try to compute Newton direction
+    det_H = h11 * h22 - h12 * h12
+    if abs(det_H) > eps(T) * max(abs(h11), abs(h22), one(T))
+        inv_det = one(T) / det_H
+        newton_s1 = -inv_det * (h22 * g1 - h12 * g2)
+        newton_s2 = -inv_det * (-h12 * g1 + h11 * g2)
+        newton_norm = sqrt(newton_s1^2 + newton_s2^2)
+        
+        if newton_norm > eps(T)
+            # Scale to trust region boundary
+            scale = tr_radius / newton_norm
+            return scale * newton_s1, scale * newton_s2
+        end
+    end
+    
+    # Fallback: steepest descent to boundary
+    if g_norm_2d > eps(T)
+        scale = tr_radius / g_norm_2d
+        return -scale * g1, -scale * g2
+    else
+        return zero(T), zero(T)
+    end
+end
+
+# ============================================================================
+# Steihaug-Toint CG Solver
+# ============================================================================
+
+function steihaug_cg!(state::TrustRegionState{T}, maxiter::Int) where T
+    g = state.gx_free
+    H = Hx(state)
+    tr_radius = state.tr_radius
+    n = length(g)
+    
+    # Initialize
+    state.step .= zero(T)
+    r = copy(g)  # Residual
+    d = -copy(g)  # Search direction
+    
+    # Workspace
+    Hd = similar(d)
+    
+    gnorm_sq = dot(g, g)
+    if gnorm_sq < eps(T)
+        state.last_step_norm = zero(T)
+        return
+    end
+    
+    for i in 1:min(maxiter, n)
+        # Compute H * d
+        mul!(Hd, H, d)
+        dHd = dot(d, Hd)
+        
+        # Check for negative curvature
+        if dHd ≤ eps(T)
+            # Find tau such that ||step + tau*d|| = tr_radius
+            tau = solve_quadratic_tr(state.step, d, tr_radius)
+            @. state.step += tau * d
+            state.step[state.active_set] .= zero(T)
+            state.last_step_norm = norm(state.step)
+            return
+        end
+        
+        # Standard CG step size
+        alpha = dot(r, r) / dHd
+        
+        # Check if step would leave trust region
+        step_trial = state.step .+ alpha .* d
+        if norm(step_trial) ≥ tr_radius
+            # Find boundary point
+            tau = solve_quadratic_tr(state.step, d, tr_radius)
+            @. state.step += tau * d
+            state.step[state.active_set] .= zero(T)
+            state.last_step_norm = norm(state.step)
+            return
+        end
+        
+        # Store old residual norm squared for beta calculation
+        r_old_norm_sq = dot(r, r)
+        
+        # Accept CG step
+        @. state.step = step_trial
+        @. r += alpha * Hd
+        
+        # Check residual convergence
+        r_norm_sq = dot(r, r)
+        if r_norm_sq < 1e-10 * gnorm_sq
+            state.step[state.active_set] .= zero(T)
+            state.last_step_norm = norm(state.step)
+            return
+        end
+        
+        # Compute next search direction using Polak-Ribière formula
+        beta = r_norm_sq / r_old_norm_sq
+        @. d = -r + beta * d
+    end
+    
+    state.step[state.active_set] .= zero(T)
+    state.last_step_norm = norm(state.step)
+end
+
+# ============================================================================
+# Helper: Solve quadratic for trust region boundary
+# ============================================================================
+
+function solve_quadratic_tr(s::AbstractVector{T}, p::AbstractVector{T}, tr_radius::T) where T
+    # Find tau >= 0 such that ||s + tau*p|| = tr_radius
+    # This solves: ||s||^2 + 2*tau*(s'p) + tau^2*||p||^2 = tr_radius^2
+    
     sp = dot(s, p)
     pp = dot(p, p)
     ss = dot(s, s)
     
-    discriminant = sp^2 - pp * (ss - tr_radius^2)
-    if discriminant < 0
-        return 0.0
+    if pp < eps(T)
+        return zero(T)
     end
     
-    alpha1 = (-sp + sqrt(discriminant)) / pp
-    alpha2 = (-sp - sqrt(discriminant)) / pp
+    # Quadratic formula: a*tau^2 + b*tau + c = 0
+    a = pp
+    b = 2 * sp
+    c = ss - tr_radius^2
     
-    return max(alpha1, alpha2)
+    discriminant = b^2 - 4*a*c
+    if discriminant < 0
+        return zero(T)
+    end
+    
+    sqrt_disc = sqrt(discriminant)
+    tau1 = (-b - sqrt_disc) / (2*a)
+    tau2 = (-b + sqrt_disc) / (2*a)
+    
+    # Return positive root
+    if tau1 > 0
+        return tau1
+    else
+        return max(tau2, zero(T))
+    end
 end
 
+# ============================================================================
+# Full Space Solver (using eigenvalue method)
+# ============================================================================
+
 function full_space_solver!(state::TrustRegionState{T}) where T<:Real
-    g_free = state.gx_free
-    H = state.Hx
+    g = state.gx_free
+    H = Hx(state)
     tr_radius = state.tr_radius
     
-    if norm(g_free) == 0
-        fill!(state.step, zero(T))
-        return
-    end
-    
+    # Try Cholesky first (if H is positive definite)
     try
-        # Try Cholesky factorization
-        F = cholesky(H)
-        step_newton = -(F \ g_free)
+        L = cholesky(H)
+        state.step .= -(L \ g)
         
-        if norm(step_newton) ≤ tr_radius
-            state.step .= step_newton
+        step_norm = norm(state.step)
+        if step_norm ≤ tr_radius
+            # Newton step is within trust region
             state.step[state.active_set] .= zero(T)
+            state.last_step_norm = step_norm
             return
         end
     catch
-        # Hessian is not positive definite
+        # H not positive definite, continue to eigenvalue method
     end
     
-    # Use eigenvalue method for indefinite case
-    try
-        E = eigen(H)
-        lambda_min = minimum(E.values)
-        
-        # Regularization parameter
-        lambda = max(0.0, -lambda_min + 1e-8)
-        
-        # Solve regularized system iteratively
-        for _ in 1:20
-            H_reg = H + lambda * I
-            try
-                step = -H_reg \ g_free
-                step_norm = norm(step)
-                
-                if abs(step_norm - tr_radius) / tr_radius < 1e-6
-                    state.step .= step
-                    break
-                elseif step_norm > tr_radius
-                    lambda *= 2
-                else
-                    lambda /= 2
-                end
-            catch
+    # Use eigenvalue regularization
+    eigen_decomp = eigen(Symmetric(H))
+    lambda_min = minimum(eigen_decomp.values)
+    
+    # Start with small regularization
+    lambda = max(-lambda_min + 1e-8, 1e-8)
+    
+    for iter in 1:20
+        H_reg = H + lambda * I
+        try
+            step_trial = -(H_reg \ g)
+            step_norm = norm(step_trial)
+            
+            if abs(step_norm - tr_radius) < 1e-10 * tr_radius
+                state.step .= step_trial
+                state.step[state.active_set] .= zero(T)
+                state.last_step_norm = step_norm
+                return
+            end
+            
+            if step_norm < tr_radius
+                # Scale to boundary
+                state.step .= step_trial .* (tr_radius / step_norm)
+                state.step[state.active_set] .= zero(T)
+                state.last_step_norm = tr_radius
+                return
+            else
                 lambda *= 2
             end
+        catch
+            lambda *= 2
         end
-    catch
-        # Fallback to Cauchy step
-        Hg = H * g_free
-        gHg = dot(g_free, Hg)
-        gnorm = norm(g_free)
-        
-        if gHg > 0
-            alpha = gnorm^2 / gHg
-        else
-            alpha = tr_radius / gnorm
-        end
-        
-        alpha = min(alpha, tr_radius / gnorm)
-        state.step .= -alpha .* g_free
     end
     
-    # Zero out steps for active variables
+    # Fallback: steepest descent
+    gnorm = norm(g)
+    if gnorm > eps(T)
+        state.step .= -(tr_radius / gnorm) .* g
+    else
+        state.step .= zero(T)
+    end
     state.step[state.active_set] .= zero(T)
+    state.last_step_norm = norm(state.step)
+end
+
+function (::FullSpace)(state::TrustRegionState)
+    full_space_solver!(state)
+end
+
+function (solver::CGSubspace)(state::TrustRegionState)
+    steihaug_cg!(state, solver.maxiter)
 end
