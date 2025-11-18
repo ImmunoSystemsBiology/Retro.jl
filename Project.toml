@@ -1,0 +1,30 @@
+name = "Fides"
+uuid = "84116d00-1ebd-4c04-8261-67462aec1636"
+authors = ["max-de-rooij <54850292+max-de-rooij@users.noreply.github.com>"]
+version = "0.1.0"
+
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
+OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
+Profile = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
+[compat]
+BenchmarkTools = "1.6.0"
+CairoMakie = "0.15.6"
+DifferentiationInterface = "0.7.7"
+Enzyme = "0.13.80"
+ForwardDiff = "1.2.1"
+LinearAlgebra = "1.11.0"
+Optimization = "4.7.0"
+OptimizationOptimJL = "0.4.4"
+Profile = "1.11.0"
+Test = "1.11.0"
+Zygote = "0.7.10"
