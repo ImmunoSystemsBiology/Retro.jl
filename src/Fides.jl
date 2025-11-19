@@ -15,10 +15,11 @@ include("solve.jl")
 export FidesProblem, solve, TrustRegionOptions
 export BFGSUpdate, SR1Update, ExactHessian
 export TwoDimSubspace, CGSubspace, FullSpace
+export CauchyPointFallback, EigenvalueFallback
 export analyze_result
 
 using Reexport
-@reexport using DifferentiationInterface: AutoForwardDiff, AutoReverseDiff, AutoZygote
+@reexport using DifferentiationInterface: AutoForwardDiff, AutoReverseDiff, AutoZygote, AutoFiniteDifferences
 # ============================================================================
 # Extended Result Analysis
 # ============================================================================

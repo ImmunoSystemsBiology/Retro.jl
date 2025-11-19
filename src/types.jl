@@ -3,7 +3,8 @@
 # ============================================================================
 
 abstract type AbstractHessianUpdate end
-abstract type AbstractSubproblemSolver end
+abstract type AbstractSubproblemFallback end
+abstract type AbstractSubproblemSolver{F<:AbstractSubproblemFallback} end
 
 # ============================================================================
 # Hessian Update Types
@@ -14,15 +15,34 @@ struct SR1Update <: AbstractHessianUpdate end
 struct ExactHessian <: AbstractHessianUpdate end
 
 # ============================================================================
+# Subproblem Fallback Types
+# ============================================================================
+
+"""Cauchy point fallback for indefinite/infeasible cases"""
+struct CauchyPointFallback <: AbstractSubproblemFallback end
+
+"""Full eigenvalue-based fallback for exact solution"""
+struct EigenvalueFallback <: AbstractSubproblemFallback end
+
+# ============================================================================
 # Subproblem Solver Types
 # ============================================================================
 
-struct TwoDimSubspace <: AbstractSubproblemSolver end
-struct CGSubspace <: AbstractSubproblemSolver 
-    maxiter::Int
-    CGSubspace(maxiter::Int = 200) = new(maxiter)
+struct TwoDimSubspace{F<:AbstractSubproblemFallback} <: AbstractSubproblemSolver{F}
+    fallback::F
+    TwoDimSubspace(fallback::F=CauchyPointFallback()) where F = new{F}(fallback)
 end
-struct FullSpace <: AbstractSubproblemSolver end
+
+struct CGSubspace{F<:AbstractSubproblemFallback} <: AbstractSubproblemSolver{F}
+    maxiter::Int
+    fallback::F
+    CGSubspace(maxiter::Int=200, fallback::F=CauchyPointFallback()) where F = new{F}(maxiter, fallback)
+end
+
+struct FullSpace{F<:AbstractSubproblemFallback} <: AbstractSubproblemSolver{F}
+    fallback::F
+    FullSpace(fallback::F=EigenvalueFallback()) where F = new{F}(fallback)
+end
 
 # ============================================================================
 # Problem Definition (SciML-style)
@@ -150,6 +170,10 @@ mutable struct TrustRegionState{T<:Real, VT<:AbstractVector{T}, MT<:Union{Abstra
     active_set::BitVector
     gx_free::VT
     
+    # Affine scaling for bounds (Coleman-Li)
+    v::VT          # Scaling vector
+    dv::VT         # Derivative of scaling vector
+    
     # Counters
     iter::Int
     f_evals::Int
@@ -211,6 +235,10 @@ function TrustRegionState(
     Δg = similar(x0)
     active_set = falses(n)
     
+    # Affine scaling vectors
+    v = ones(T, n)
+    dv = zeros(T, n)
+    
     # Trial point DiffResult (same type as main)
     if Hx_approx_init !== nothing
         # Quasi-Newton: use GradientResult
@@ -226,6 +254,7 @@ function TrustRegionState(
         Hx_approx_init,
         tr_radius,
         lb, ub, active_set, gx_free,
+        v, dv,  # Affine scaling
         0, 1, 1, 0,  # Counters
         step, step_reflected, x_trial, diff_result_trial, Hg,
         Hs, Δg, zero(T)

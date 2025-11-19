@@ -13,7 +13,7 @@ end
 # 2D Subspace Solver
 # ============================================================================
 
-function (::TwoDimSubspace)(state::TrustRegionState{T}) where {T<:Real}
+function (solver::TwoDimSubspace{F})(state::TrustRegionState{T}) where {F<:AbstractSubproblemFallback, T<:Real}
     g = gx(state)
     H = Hx(state)
     tr_radius = state.tr_radius
@@ -91,8 +91,8 @@ function (::TwoDimSubspace)(state::TrustRegionState{T}) where {T<:Real}
     h22 = dot(d2, Hd2)
     h12 = dot(d1, Hd2)
     
-    # Solve 2D trust region subproblem
-    alpha, beta = solve_2d_trust_region(g1, g2, h11, h22, h12, tr_radius)
+    # Solve 2D trust region subproblem (dispatch on fallback type)
+    alpha, beta = solve_2d_trust_region(solver.fallback, g1, g2, h11, h22, h12, tr_radius)
     
     # Reconstruct step in full space
     state.step .= alpha .* d1 .+ beta .* d2
@@ -105,10 +105,24 @@ function (::TwoDimSubspace)(state::TrustRegionState{T}) where {T<:Real}
 end
 
 # ============================================================================
-# 2D Trust Region Solver (Exact)
+# 2D Trust Region Solver Dispatch (by fallback type)
 # ============================================================================
 
-function solve_2d_trust_region(g1::T, g2::T, h11::T, h22::T, h12::T, tr_radius::T) where T<:Real
+# Cauchy point fallback (default, fast)
+function solve_2d_trust_region(::CauchyPointFallback, g1::T, g2::T, h11::T, h22::T, h12::T, tr_radius::T) where T<:Real
+    solve_2d_trust_region_cauchy(g1, g2, h11, h22, h12, tr_radius)
+end
+
+# Eigenvalue fallback (exact, more expensive)
+function solve_2d_trust_region(::EigenvalueFallback, g1::T, g2::T, h11::T, h22::T, h12::T, tr_radius::T) where T<:Real
+    solve_2d_trust_region_eigenvalue(g1, g2, h11, h22, h12, tr_radius)
+end
+
+# ============================================================================
+# 2D Trust Region Solver (Cauchy point fallback - default)
+# ============================================================================
+
+function solve_2d_trust_region_cauchy(g1::T, g2::T, h11::T, h22::T, h12::T, tr_radius::T) where T<:Real
     # Check for zero gradient
     g_norm_2d = sqrt(g1^2 + g2^2)
     if g_norm_2d < eps(T)
@@ -155,6 +169,139 @@ function solve_2d_trust_region(g1::T, g2::T, h11::T, h22::T, h12::T, tr_radius::
     end
     
     return -t * g1, -t * g2
+end
+
+# ============================================================================
+# Eigenvalue-based 2D Solver (Exact solution via secular equation)
+# ============================================================================
+
+function solve_2d_trust_region_eigenvalue(g1::T, g2::T, h11::T, h22::T, h12::T, tr_radius::T) where T<:Real
+    # Check for zero gradient
+    g_norm_2d = sqrt(g1^2 + g2^2)
+    if g_norm_2d < eps(T) || tr_radius == 0
+        return zero(T), zero(T)
+    end
+    
+    # Eigenvalue decomposition of 2x2 Hessian
+    # For 2x2 symmetric matrix, we can compute eigenvalues analytically
+    trace_H = h11 + h22
+    det_H = h11 * h22 - h12^2
+    discriminant = trace_H^2 - 4*det_H
+    
+    if discriminant < 0
+        # Complex eigenvalues shouldn't happen for symmetric matrix
+        # Fall back to Cauchy point
+        gHg = g1*g1*h11 + 2*g1*g2*h12 + g2*g2*h22
+        if gHg > eps(T)
+            t_cauchy = g_norm_2d^2 / gHg
+            t = min(t_cauchy, tr_radius / g_norm_2d)
+        else
+            t = tr_radius / g_norm_2d
+        end
+        return -t * g1, -t * g2
+    end
+    
+    sqrt_disc = sqrt(max(discriminant, zero(T)))
+    λ1 = (trace_H + sqrt_disc) / 2  # Larger eigenvalue
+    λ2 = (trace_H - sqrt_disc) / 2  # Smaller eigenvalue
+    
+    # Check if positive definite
+    if λ2 > 0
+        # Try unconstrained Newton step
+        if abs(det_H) > eps(T) * max(abs(h11), abs(h22), one(T))
+            inv_det = one(T) / det_H
+            s1 = -inv_det * (h22 * g1 - h12 * g2)
+            s2 = -inv_det * (-h12 * g1 + h11 * g2)
+            s_norm = sqrt(s1^2 + s2^2)
+            
+            if s_norm <= tr_radius + sqrt(eps(T))
+                # Interior solution
+                return s1, s2
+            end
+        end
+    end
+    
+    # Need to find boundary solution via secular equation
+    # Use simple bisection or closed-form for 2D case
+    # For 2D, we can solve directly using the trust region constraint
+    
+    # Solve ||s(λ)||² = Δ² where s(λ) solves (H + λI)s = -g
+    # This is a 1D root-finding problem
+    
+    λ_min = -λ2  # Minimum valid λ (makes H + λI positive semidefinite)
+    
+    # Try a few λ values to find the boundary solution
+    function secular_eq(λ::T)
+        # Solve (H + λI)s = -g
+        h11_λ = h11 + λ
+        h22_λ = h22 + λ
+        det_λ = h11_λ * h22_λ - h12^2
+        
+        if abs(det_λ) < eps(T)
+            return Inf
+        end
+        
+        inv_det = one(T) / det_λ
+        s1 = -inv_det * (h22_λ * g1 - h12 * g2)
+        s2 = -inv_det * (-h12 * g1 + h11_λ * g2)
+        s_norm = sqrt(s1^2 + s2^2)
+        
+        return s_norm - tr_radius
+    end
+    
+    # Binary search for λ
+    λ_low = max(λ_min, zero(T))
+    λ_high = λ_low + 1.0
+    
+    # Find upper bound
+    maxiter = 50
+    for _ in 1:maxiter
+        if secular_eq(λ_high) < 0
+            λ_high *= 2
+        else
+            break
+        end
+    end
+    
+    # Bisection
+    for _ in 1:maxiter
+        λ_mid = (λ_low + λ_high) / 2
+        res = secular_eq(λ_mid)
+        
+        if abs(res) < 1e-10
+            break
+        end
+        
+        if res > 0
+            λ_low = λ_mid
+        else
+            λ_high = λ_mid
+        end
+    end
+    
+    λ_sol = (λ_low + λ_high) / 2
+    
+    # Compute final solution
+    h11_λ = h11 + λ_sol
+    h22_λ = h22 + λ_sol
+    det_λ = h11_λ * h22_λ - h12^2
+    
+    if abs(det_λ) > eps(T)
+        inv_det = one(T) / det_λ
+        s1 = -inv_det * (h22_λ * g1 - h12 * g2)
+        s2 = -inv_det * (-h12 * g1 + h11_λ * g2)
+        return s1, s2
+    else
+        # Fallback to Cauchy point
+        gHg = g1*g1*h11 + 2*g1*g2*h12 + g2*g2*h22
+        if gHg > eps(T)
+            t_cauchy = g_norm_2d^2 / gHg
+            t = min(t_cauchy, tr_radius / g_norm_2d)
+        else
+            t = tr_radius / g_norm_2d
+        end
+        return -t * g1, -t * g2
+    end
 end
 
 # ============================================================================

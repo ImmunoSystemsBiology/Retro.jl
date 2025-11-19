@@ -2,6 +2,56 @@
 # Bound Constraint Utilities  
 # ============================================================================
 
+"""
+    compute_affine_scaling!(state)
+
+Compute affine scaling vectors v and dv according to Coleman-Li.
+For variables constrained by bounds, v = x - bound (where bound depends on gradient sign).
+For unconstrained variables, v = sign(g).
+dv is the derivative of v with respect to x (0 for unconstrained, 1 for constrained).
+"""
+function compute_affine_scaling!(state::TrustRegionState{T}) where T
+    x = state.x
+    g = gx(state)
+    lb, ub = state.lb, state.ub
+    v = state.v
+    dv = state.dv
+    
+    # Default: no scaling for unconstrained variables
+    # v = sign(g) for variables without active bounds
+    @inbounds for i in eachindex(x)
+        v[i] = sign(g[i]) + T(g[i] == 0)  # Handle zero gradient
+        dv[i] = zero(T)
+    end
+    
+    # For bounded variables, use distance to boundary
+    # bound = lb if g >= 0, ub if g < 0
+    if lb !== nothing || ub !== nothing
+        @inbounds for i in eachindex(x)
+            if lb !== nothing && ub !== nothing
+                # Both bounds present
+                bound = g[i] < 0 ? ub[i] : lb[i]
+                if isfinite(bound)
+                    v[i] = x[i] - bound
+                    dv[i] = one(T)
+                end
+            elseif lb !== nothing
+                # Only lower bound
+                if isfinite(lb[i]) && g[i] >= 0
+                    v[i] = x[i] - lb[i]
+                    dv[i] = one(T)
+                end
+            elseif ub !== nothing
+                # Only upper bound  
+                if isfinite(ub[i]) && g[i] < 0
+                    v[i] = x[i] - ub[i]
+                    dv[i] = one(T)
+                end
+            end
+        end
+    end
+end
+
 function project_bounds(x::AbstractVector, lb, ub)
     x_proj = copy(x)
     if lb !== nothing
