@@ -1,128 +1,170 @@
-# ============================================================================
-# Bound Constraint Utilities  
-# ============================================================================
+"""
+    Bound Constraint Handling
+
+Functions for managing bound constraints in trust-region optimization using the
+Coleman-Li reflective barrier approach.
+"""
 
 """
     compute_affine_scaling!(state)
 
-Compute affine scaling vectors v and dv according to Coleman-Li.
-For variables constrained by bounds, v = x - bound (where bound depends on gradient sign).
-For unconstrained variables, v = sign(g).
-dv is the derivative of v with respect to x (0 for unconstrained, 1 for constrained).
+Compute affine scaling vectors v and dv according to Coleman-Li methodology.
+
+For variables constrained by bounds, v measures the distance to the active bound.
+For unconstrained variables, v = sign(gradient). The derivative dv is used in
+the scaled Hessian approximation.
+
+This scaling transforms the constrained problem into one more suitable for
+trust-region methods near boundaries.
+
+Reference: Coleman & Li (1994), "On the Convergence of Interior-Reflective Newton Methods
+for Nonlinear Minimization Subject to Bounds"
 """
 function compute_affine_scaling!(state::TrustRegionState{T}) where T
     x = state.x
-    g = gx(state)
+    g = state.grad
     lb, ub = state.lb, state.ub
     v = state.v
     dv = state.dv
     
-    # Default: no scaling for unconstrained variables
-    # v = sign(g) for variables without active bounds
+    # Fused loop: compute both default and bounded cases in single pass
     @inbounds for i in eachindex(x)
-        v[i] = sign(g[i]) + T(g[i] == 0)  # Handle zero gradient
-        dv[i] = zero(T)
-    end
-    
-    # For bounded variables, use distance to boundary
-    # bound = lb if g >= 0, ub if g < 0
-    if lb !== nothing || ub !== nothing
-        @inbounds for i in eachindex(x)
-            if lb !== nothing && ub !== nothing
-                # Both bounds present
-                bound = g[i] < 0 ? ub[i] : lb[i]
-                if isfinite(bound)
-                    v[i] = x[i] - bound
-                    dv[i] = one(T)
-                end
-            elseif lb !== nothing
-                # Only lower bound
-                if isfinite(lb[i]) && g[i] >= 0
-                    v[i] = x[i] - lb[i]
-                    dv[i] = one(T)
-                end
-            elseif ub !== nothing
-                # Only upper bound  
-                if isfinite(ub[i]) && g[i] < 0
-                    v[i] = x[i] - ub[i]
-                    dv[i] = one(T)
-                end
-            end
+        gi = g[i]
+        xi = x[i]
+        
+        # Determine which bound is active based on gradient direction
+        if gi < 0 && isfinite(ub[i])
+            # Upper bound is relevant (we're moving towards it)
+            v[i] = xi - ub[i]
+            dv[i] = one(T)
+        elseif gi >= 0 && isfinite(lb[i])
+            # Lower bound is relevant
+            v[i] = xi - lb[i]
+            dv[i] = one(T)
+        else
+            # Default: sign scaling for unconstrained variables
+            v[i] = gi != zero(T) ? sign(gi) : one(T)
+            dv[i] = zero(T)
         end
     end
 end
 
-function project_bounds(x::AbstractVector, lb, ub)
-    x_proj = copy(x)
-    if lb !== nothing
-        x_proj .= max.(x_proj, lb)
+"""
+    check_and_project_bounds!(x, lb, ub)
+
+    Check if `x` is within bounds defined by `lb` and `ub`. If not, project `x` onto the feasible region.
+Project a point `x` in place onto the feasible region defined by bounds `lb` and `ub`.
+
+# Arguments
+- `x`: Point to project
+- `lb`: Lower bounds (can be nothing)
+- `ub`: Upper bounds (can be nothing)
+
+"""
+function check_and_project_bounds!(x::AbstractVector{T}, lb::AbstractVector{T}, ub::AbstractVector{T}) where T
+
+    if any(lb .> x) || any(ub .< x)
+        @warn "Initial point is out of set bounds. Projecting onto feasible region."
     end
-    if ub !== nothing  
-        x_proj .= min.(x_proj, ub)
-    end
-    return x_proj
+
+    x .= max.(x, lb)
+    x .= min.(x, ub)
 end
 
+"""
+    update_active_set!(state, options)
+
+Identify which bound constraints are currently active.
+
+A constraint is active if the variable is at the bound and the gradient
+points in the direction that would violate the bound.
+
+Updates `state.active_set` and `state.gx_free` (gradient with active components zeroed).
+"""
 function update_active_set!(state::TrustRegionState{T}, options) where T
-    x = state.x
-    g = gx(state)  # Use accessor
+    x = state.x 
+    g = state.grad
+    gx_free = state.gx_free
     lb, ub = state.lb, state.ub
+    active_set = state.active_set
+    bound_tol = sqrt(eps(T))
     
+    # Fused loop: update active set and gx_free in single pass
     @inbounds for i in eachindex(x)
-        is_active = false
+        xi = x[i]
+        gi = g[i]
         
-        if lb !== nothing && x[i] ≈ lb[i] && g[i] > 0
-            is_active = true
-        elseif ub !== nothing && x[i] ≈ ub[i] && g[i] < 0
-            is_active = true
-        end
+        # Variable is active if it's at a bound and gradient points outward
+        at_lower = isfinite(lb[i]) && abs(xi - lb[i]) < bound_tol
+        at_upper = isfinite(ub[i]) && abs(xi - ub[i]) < bound_tol
         
-        state.active_set[i] = is_active
-        state.gx_free[i] = is_active ? zero(T) : g[i]
+        is_active = (at_lower && gi > 0) || (at_upper && gi < 0)
+        active_set[i] = is_active
+        gx_free[i] = is_active ? zero(T) : gi
     end
 end
 
-function apply_reflective_bounds!(state::TrustRegionState, options)
+"""
+    apply_reflective_bounds!(state, options)
+
+Apply reflective boundary conditions to the proposed step using Coleman-Li method.
+
+When a proposed step would violate bounds, this function applies reflection or
+truncation based on the distance to the boundary controlled by theta parameters.
+
+The step is modified such that it respects bounds while still making progress.
+This implements the reflective step-back strategy from Coleman & Li (1994, 1996).
+
+Updates `state.step_reflected` with the step after bounds handling.
+"""
+function apply_reflective_bounds!(state::TrustRegionState{T}, options) where T
     step = state.step
     x = state.x
     lb, ub = state.lb, state.ub
+    step_reflected = state.step_reflected
     
-    state.step_reflected .= step
+    # Start with the proposed step
+    @. step_reflected = step
     
-    if lb === nothing && ub === nothing
-        return  # No bounds
+    # If no bounds, nothing to do
+    if all(.!isfinite.(lb)) && all(.!isfinite.(ub))
+        return
     end
     
-    # Apply reflective bounds using the method from fides
-    for i in eachindex(step)
-        x_new = x[i] + step[i]
-        
-        if lb !== nothing && x_new < lb[i]
-            # Reflect off lower bound
-            dist_to_bound = x[i] - lb[i]
-            if dist_to_bound > options.theta1 * state.tr_radius
-                # Simple reflection
-                state.step_reflected[i] = 2 * (lb[i] - x[i]) - step[i]
-            else
-                # Move to bound
-                state.step_reflected[i] = lb[i] - x[i]
-            end
-        elseif ub !== nothing && x_new > ub[i]
-            # Reflect off upper bound  
-            dist_to_bound = ub[i] - x[i]
-            if dist_to_bound > options.theta1 * state.tr_radius
-                # Simple reflection
-                state.step_reflected[i] = 2 * (ub[i] - x[i]) - step[i]
-            else
-                # Move to bound
-                state.step_reflected[i] = ub[i] - x[i]
+    # Compute distance to boundaries for each component
+    minbr = T(Inf)
+    step_tol = eps(T)
+    
+    @inbounds for i in eachindex(step)
+        si = step[i]
+        if abs(si) > step_tol
+            xi = x[i]
+            # Distance to boundary as fraction of step
+            dist_lower = isfinite(lb[i]) ? (lb[i] - xi) / si : T(Inf)
+            dist_upper = isfinite(ub[i]) ? (ub[i] - xi) / si : T(Inf)
+            
+            # Maximum positive fraction we can take
+            br_i = max(dist_lower, dist_upper)
+            if br_i < minbr && br_i > 0
+                minbr = br_i
             end
         end
     end
     
-    # Ensure reflected step is within trust region
-    step_norm = norm(state.step_reflected)
-    if step_norm > state.tr_radius
-        state.step_reflected .*= state.tr_radius / step_norm
+    # Apply step-back if we hit a boundary
+    if minbr < 1
+        alpha = min(one(T), options.theta1 * minbr)
+        @. step_reflected *= alpha
+    end
+    
+    # Ensure step doesn't violate bounds (safety clamp)
+    @inbounds for i in eachindex(step_reflected)
+        x_new = x[i] + step_reflected[i]
+        
+        if isfinite(lb[i]) && x_new < lb[i]
+            step_reflected[i] = lb[i] - x[i]
+        elseif isfinite(ub[i]) && x_new > ub[i]
+            step_reflected[i] = ub[i] - x[i]
+        end
     end
 end

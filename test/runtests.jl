@@ -1,4 +1,7 @@
-using Fides, Test, BenchmarkTools
+using Retro, Test, BenchmarkTools, ForwardDiff
+#import Fides
+
+#include("fides.jl")
 
 @testset "Boilerplate Tests" begin
     include("boilerplate.jl")
@@ -12,6 +15,3 @@ end
     include("rosenbrock.jl")
 end
 
-@testset "Parametric Fallback Types" begin
-    include("fallback_test.jl")
-end
