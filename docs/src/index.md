@@ -2,7 +2,7 @@
 <div class="retro-hero">
     <h1>RETRO.JL</h1>
     <div class="tagline">REflective-bounds Trust-Region Optimizer</div>
-    <span class="version-badge">v0.1.0 · Julia</span>
+    <span class="version-badge">v0.0.1 · Julia</span>
 </div>
 
 <div class="retro-intro">

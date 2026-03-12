@@ -1,6 +1,6 @@
 name = "Retro"
 uuid = "84116d00-1ebd-4c04-8261-67462aec1636"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["max-de-rooij <54850292+max-de-rooij@users.noreply.github.com>"]
 
 [deps]
