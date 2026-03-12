@@ -34,6 +34,9 @@ Retro (REflective-bounds Trust-Region Optimizer): A high-performance Julia packa
 
 ### Using Retro
 
+> [!IMPORTANT]
+> To use `Retro.jl` with an automatic differentiation backend (like `ForwardDiff.jl`), you need to import that separately.
+
 ```julia
 using Retro, ForwardDiff
 
