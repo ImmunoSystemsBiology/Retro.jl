@@ -18,8 +18,16 @@ Retro (REflective-bounds Trust-Region Optimizer): A high-performance Julia packa
 - **Bound Constraints**: Interior-point reflective method (Coleman-Li algorithm)
 - **Automatic Differentiation**: Seamless integration via DifferentiationInterface
 - **Least-Squares Support**: Specialized Gauss-Newton for residual formulations
-
+- **Global Search with LHS**: Latin Hypercube Sampling for candidate generation in global optimization
+  
 ## Quick Start
+
+### Adding Retro to your project
+1. Make a local copy of Retro on your machine and store it in a location that is easily accessible.
+2. In your Julia project, run `pkg> develop <path/to/Retro.jl>`
+3. Retro will be usable within your project.
+
+### Using Retro
 
 ```julia
 using Retro, ForwardDiff
@@ -36,13 +44,13 @@ result = optimize(prob)
 
 ## Hessian Strategies
 
-- `BFGSUpdate()`: Quasi-Newton BFGS (recommended for general use)
+- `BFGSUpdate()`: Quasi-Newton BFGS (default; recommended for general use)
 - `SR1Update()`: Symmetric Rank-1 (good for indefinite problems)
 - `ExactHessian()`: Exact Hessian via AD (expensive but accurate)
 
 ## Subproblem Solvers
 
-- `TwoDimSubspace()`: 2D subspace method (recommended, good balance)
+- `TwoDimSubspace()`: 2D subspace method (default; recommended, good balance)
 - `CGSubspace()`: Steihaug-Toint CG (good for large problems)
 - `FullSpace()`: Eigenvalue decomposition (most accurate, expensive)
 
