@@ -1,13 +1,14 @@
 > [!WARNING]
 > The optimizer is still under development, and has not been fully tested, yet. Use with caution.
-
+```
 ██████╗ ███████╗████████╗██████╗  ██████╗ 
 ██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██╔═══██╗
 ██████╔╝█████╗     ██║   ██████╔╝██║   ██║
 ██╔══██╗██╔══╝     ██║   ██╔══██╗██║   ██║
 ██║  ██║███████╗   ██║   ██║  ██║╚██████╔╝
-╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ 
+╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝
 Reflective-bounds Trust Region Optimizer
+```
 
 Retro (REflective-bounds Trust-Region Optimizer): A high-performance Julia package for bound-constrained optimization using trust-region reflective methods.
 
