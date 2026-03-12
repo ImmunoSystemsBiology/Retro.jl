@@ -17,6 +17,8 @@ Retro (REflective-bounds Trust-Region Optimizer): A high-performance Julia packa
 
 > [!WARNING]
 > The optimizer is still under development, and has not been fully tested, yet. Use with caution.
+>
+> If you find any issues, report them [here](https://github.com/max-de-rooij/Retro.jl/issues)!
 
 ## Features
 
