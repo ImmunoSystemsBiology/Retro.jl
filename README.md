@@ -1,13 +1,14 @@
 > [!WARNING]
 > The optimizer is still under development, and has not been fully tested, yet. Use with caution.
-
+```
 ██████╗ ███████╗████████╗██████╗  ██████╗ 
 ██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██╔═══██╗
 ██████╔╝█████╗     ██║   ██████╔╝██║   ██║
 ██╔══██╗██╔══╝     ██║   ██╔══██╗██║   ██║
 ██║  ██║███████╗   ██║   ██║  ██║╚██████╔╝
-╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ 
+╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝
 Reflective-bounds Trust Region Optimizer
+```
 
 Retro (REflective-bounds Trust-Region Optimizer): A high-performance Julia package for bound-constrained optimization using trust-region reflective methods.
 
@@ -18,7 +19,6 @@ Retro (REflective-bounds Trust-Region Optimizer): A high-performance Julia packa
 - **Bound Constraints**: Interior-point reflective method (Coleman-Li algorithm)
 - **Automatic Differentiation**: Seamless integration via DifferentiationInterface
 - **Least-Squares Support**: Specialized Gauss-Newton for residual formulations
-- **Global Search with LHS**: Latin Hypercube Sampling for candidate generation in global optimization
   
 ## Quick Start
 
