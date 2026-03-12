@@ -113,7 +113,7 @@ using Random
                         subspace=TwoDimSubspace())
         
         @test result isa RetroResult
-        
+        @test is_successful(result)
         if is_successful(result)
             @test norm(result.x - [3.0, 0.5]) < 0.1
             @test result.fx < 1e-6
@@ -131,7 +131,7 @@ using Random
         result = optimize(prob; maxiter=50, display=Silent())
         
         @test result isa RetroResult
-        
+        @test is_successful(result)
         if is_successful(result)
             @test norm(result.x - [1.0, 3.0]) < 1e-4
             @test result.fx < 1e-8
@@ -154,8 +154,8 @@ using Random
                         options=RetroOptions(gtol_a=1e-5))  # Relaxed tolerance
         
         @test result isa RetroResult
-        # This is a very challenging problem, so just check it doesn't crash
         @test result.fx > 0  # Should be finite
+        @test is_successful(result)
     end
     
     @testset "Sphere Function with Noise" begin
