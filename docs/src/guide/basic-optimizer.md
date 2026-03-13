@@ -25,7 +25,7 @@ Gradient descent is simple, but it has well-known failure modes:
 
 ```@raw html
 <div style="text-align: center;">
-    <img src="../assets/grad.svg" alt="Gradient descent zig-zagging in a narrow valley" width="400">
+    <img src="https://raw.githubusercontent.com/max-de-rooij/Retro.jl/751913d7ca3a5bf22b45b2f90d18122e32cd219e/docs/src/assets/grad.svg" alt="Gradient descent zig-zagging in a narrow valley" width="400">
     <p style="font-size: 0.9em; color: #555;">Gradient descent zig-zagging in a narrow valley</p>
 </div>
 ```
