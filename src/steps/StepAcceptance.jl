@@ -20,16 +20,16 @@ function accept_step(rho::T, eta_1::T = T(0.25)) where {T<:Real}
     return rho > eta_1
 end
 
-# Update trust-region radius
+# Update trust-region radius (following fides: Coleman & Li 1994/1996)
 function update_trust_region_radius(Delta::T, rho::T, step_norm::T,
                                    mu::T = T(0.25), eta::T = T(0.75),
                                    gamma1::T = T(0.25), gamma2::T = T(2.0),
                                    max_Delta::T = T(1000.0)) where {T<:Real}
     if rho < mu
-        # Poor model agreement, shrink radius
+        # Poor model agreement — shrink radius
         Delta_new = gamma1 * Delta
-    elseif rho > eta && step_norm >= 0.9 * Delta
-        # Good model agreement and step hit boundary, expand
+    elseif rho > eta && step_norm >= T(0.9) * Delta
+        # Good model agreement and step hit boundary — expand
         Delta_new = min(gamma2 * Delta, max_Delta)
     else
         # Maintain current radius

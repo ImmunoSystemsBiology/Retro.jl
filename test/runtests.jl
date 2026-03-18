@@ -25,5 +25,9 @@ Random.seed!(1234)
     @testset "Challenging Optimization Problems" begin
         include("challenging_problems.jl")
     end
+
+    @testset "ODE Parameter Estimation Problems" begin
+        include("ode.jl")
+    end
 end
 

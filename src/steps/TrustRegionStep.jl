@@ -1,6 +1,13 @@
 """
 Main trust-region step computation interface.
 Coordinates between subspace methods, TR solvers, and bound constraints.
+
+When bounds are present, uses Coleman-Li affine scaling (Eq 2.5,
+Coleman & Li 1996): the Hessian is transformed to
+`B_hat = D * B * D + diag(|g| .* dv)` and the gradient to `sg = D * g`,
+where `D = diag(sqrt(|v|))`.
+The TR subproblem is solved in this scaled space, then the step is
+converted back: `s = D .* ss`.
 """
 
 # Main trust-region step computation
@@ -8,46 +15,83 @@ function compute_trust_region_step!(cache::RetroCache{T}, prob::RetroProblem,
                                   subspace, subspace_state, hess_approx, hess_state,
                                   tr_solver, x::AbstractVector{T}, Delta::T,
                                   options) where {T<:Real}
-    
-    # Compute scaling for bound constraints
-    compute_scaling!(cache.scaling, x, prob.lb, prob.ub, options.theta1, options.theta2)
-    
-    # Scale gradient for bound constraints
-    scale_gradient!(cache.scaled_g, cache.g, cache.scaling)
-    
-    # Build subspace using scaled gradient
-    original_g = copy(cache.g)
-    copy!(cache.g, cache.scaled_g)  # Temporarily use scaled gradient
-    
-    # Initialize step_norm before try block (so it's in scope for return)
+    n = length(x)
+    has_bounds = any(isfinite, prob.lb) || any(isfinite, prob.ub)
     step_norm = zero(T)
-    
-    try
-        # Build the subspace (2D, CG, or full-space)
-        build_subspace!(subspace, subspace_state, cache, hess_approx, hess_state, x)
-        
-        # Solve trust-region subproblem in the subspace
-        step_norm = solve_subspace_tr!(tr_solver, subspace, subspace_state, cache, Delta)
-        
-        # Apply inverse scaling to get step in original space
-        @. cache.p /= cache.scaling
-        
-    catch e
-        @warn "Subspace TR solve failed, using Cauchy step: $e"
-        
-        # Fallback to Cauchy step
-        step_norm = compute_cauchy_step!(cache.p, cache.scaled_g, hess_approx, cache, Delta)
-        @. cache.p /= cache.scaling
-    finally
-        # Restore original gradient
-        copy!(cache.g, original_g)
+
+    if has_bounds
+        # ── Coleman-Li affine scaling ────────────────────────────────
+        # D = sqrt(|v|),  dv = Jacobian diagonal of v
+        compute_affine_scaling!(cache.scaling, cache.d, x, cache.g, prob.lb, prob.ub)
+
+        # Save originals (restored in `finally`)
+        B_save = copy(cache.B)
+        g_save = copy(cache.g)
+
+        try
+            # Scaled Hessian: B̂[i,j] = D[i]*B[i,j]*D[j] + δ_{ij}*|g[i]|*dv[i]
+            for j in 1:n, i in 1:n
+                cache.B[i,j] = cache.scaling[i] * B_save[i,j] * cache.scaling[j]
+            end
+            for i in 1:n
+                cache.B[i,i] += abs(g_save[i]) * cache.d[i]
+            end
+
+            # Scaled gradient: sg = D * g
+            @. cache.g = cache.scaling * g_save
+
+            # Build subspace & solve TR in scaled space
+            build_subspace!(subspace, subspace_state, cache, hess_approx, hess_state, x)
+            step_norm = solve_subspace_tr!(tr_solver, subspace, subspace_state, cache, Delta)
+
+            # Convert step from scaled to original space: s = D * ss
+            @. cache.p *= cache.scaling
+
+        catch e
+            @warn "Subspace TR solve failed, using Cauchy step: $e"
+            # Fallback: steepest descent in original space
+            g_norm = norm(g_save)
+            if g_norm > eps(T)
+                alpha = Delta / g_norm
+                @. cache.p = -alpha * g_save
+            else
+                fill!(cache.p, zero(T))
+            end
+        finally
+            # Restore original Hessian and gradient
+            copy!(cache.B, B_save)
+            copy!(cache.g, g_save)
+        end
+
+        # Apply reflective bounds (Coleman & Li)
+        apply_reflective_bounds!(cache.x_trial, x, cache.p, prob.lb, prob.ub, options.theta2;
+                                g=cache.g)
+
+        # Update step to the actual movement (post-reflection)
+        @. cache.p = cache.x_trial - x
+
+        # Step norm in scaled space (consistent with Delta)
+        step_norm = zero(T)
+        for i in 1:n
+            ss_i = cache.p[i] / max(cache.scaling[i], eps(T))
+            step_norm += ss_i * ss_i
+        end
+        step_norm = sqrt(step_norm)
+
+    else
+        # ── No bounds: simple unscaled path ──────────────────────────
+        try
+            build_subspace!(subspace, subspace_state, cache, hess_approx, hess_state, x)
+            step_norm = solve_subspace_tr!(tr_solver, subspace, subspace_state, cache, Delta)
+        catch e
+            @warn "Subspace TR solve failed, using Cauchy step: $e"
+            step_norm = compute_cauchy_step!(cache.p, cache.g, hess_approx, cache, Delta)
+        end
+
+        @. cache.x_trial = x + cache.p
+        step_norm = norm(cache.p)
     end
-    
-    # Apply reflective bounds with multiple reflections (Coleman & Li)
-    # Pass the gradient so we can detect local minima at boundaries
-    apply_reflective_bounds!(cache.x_trial, x, cache.p, prob.lb, prob.ub, options.theta2;
-                            g=cache.g)
-    
+
     return step_norm
 end
 

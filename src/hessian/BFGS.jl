@@ -53,26 +53,33 @@ Update the Hessian approximation stored in `cache.B` using the latest iterate.
 """
 function update_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}, obj, x) where {T}
     if !state.initialized
-        # First call: just record current gradient and position
-        gradient!(cache.g_prev, cache, obj, x)
+        # First call: just record current gradient and position.
+        # cache.g already holds the gradient from value_and_gradient!
+        # in the optimizer loop — no need to re-evaluate.
+        copy!(cache.g_prev, cache.g)
         copy!(cache.x_prev, x)
         state.initialized = true
         return
     end
     
     # s = x_k - x_{k-1},  y = g_k - g_{k-1}
+    # cache.g already contains g_k (set by the optimizer after accepting a step
+    # or unchanged after a rejection), so no gradient! call is needed.
     @. cache.s = x - cache.x_prev
-    gradient!(cache.g, cache, obj, x)
     @. cache.y = cache.g - cache.g_prev
     
     # Check s'*y > 0 (curvature condition)
     sy = dot(cache.s, cache.y)
     
-    # Rescale B on first successful update (Nocedal & Wright suggestion)
+    # Rescale B on first successful update (Nocedal & Wright §6.1).
+    # The code stores B (direct Hessian approximation), not the inverse H.
+    # The correct initial scaling for B₀ is  y'y / s'y  (not s'y / y'y,
+    # which applies to the inverse Hessian formulation).
+    # Clamped to [1e-8, 1e8] to prevent extreme values on badly-scaled problems.
     if !state.first_update_done && sy > eps(T)
         yy = dot(cache.y, cache.y)
         if yy > eps(T)
-            scale = sy / yy
+            scale = clamp(yy / sy, T(1e-8), T(1e8))
             cache.B .*= scale
         end
         state.first_update_done = true
@@ -122,6 +129,31 @@ Compute the Hessian-vector product `Hv = B * v` using the current approximation.
 """
 function apply_hessian!(Hv, bfgs::BFGS{T}, state, cache::RetroCache{T}, v) where {T}
     mul!(Hv, cache.B, v)
+end
+
+"""
+    reset_hessian!(approx, state, cache)
+
+Reset the Hessian approximation to a scaled identity.  Called by the optimizer
+when many consecutive steps are rejected, indicating the curvature model has
+become too inaccurate to produce useful steps.
+
+The diagonal scaling is based on the current B diagonal (preserving whatever
+per-parameter curvature information was accumulated) rather than resetting to
+a flat identity.
+"""
+function reset_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}) where {T}
+    n = size(cache.B, 1)
+    # Preserve per-component curvature: use geometric mean of diagonal
+    diag_vals = [abs(cache.B[i, i]) for i in 1:n]
+    geomean = exp(sum(log.(max.(diag_vals, eps(T)))) / n)
+    geomean = clamp(geomean, T(1e-8), T(1e8))
+    cache.B .= zero(T)
+    for i in 1:n
+        cache.B[i, i] = geomean
+    end
+    # Allow re-rescaling on the next successful update
+    state.first_update_done = false
 end
 
 # Solve Newton direction: B * d = g, return d (the Newton direction)

@@ -4,7 +4,7 @@ using Reexport: @reexport
 using ADTypes: ADTypes, AbstractADType, AutoForwardDiff
 using DifferentiationInterface: DifferentiationInterface, prepare_gradient, prepare_hessian
 using LinearAlgebra: LinearAlgebra, I, Symmetric, cholesky, cond, dot, eigen, factorize, issuccess, ldiv!, mul!, norm
-using Printf: Printf, @printf
+using Printf: Printf, @printf, @sprintf
 using ProgressMeter: ProgressMeter, Progress
 using StaticArrays: StaticArrays, @SMatrix, @SVector, SMatrix, SVector, StaticVector
 
@@ -50,7 +50,8 @@ export TwoDimSubspace, CGSubspace, FullSpace, init_subspace!, build_subspace!, s
 
 # Step computation and acceptance
 include("steps/Reflection.jl")
-export compute_scaling!, scale_gradient!, apply_reflective_bounds!, project_bounds!,
+export compute_scaling!, scale_gradient!, compute_affine_scaling!,
+       apply_reflective_bounds!, project_bounds!,
        initialize_away_from_bounds!, find_step_to_bound, compute_cauchy_boundary_point!
 
 include("steps/StepAcceptance.jl")
@@ -67,7 +68,7 @@ include("utils/Norms.jl")
 include("utils/Displays.jl")
 export safe_norm, safe_dot, safe_cond, is_positive_definite, smallest_eigenvalue,
        norm_inf, norm_weighted, norm_relative, norm_scaled, trust_region_norm, gradient_norm,
-       Silent, Iteration, Final, Verbose, display_header, display_iteration, display_final
+       Silent, Iteration, Final, Verbose, Debug, display_header, display_iteration, display_final
 
 # Main optimization routine
 include("optimize.jl")

@@ -26,6 +26,18 @@ Print per-iteration output plus a progress bar (via ProgressMeter).
 """
 struct Verbose <: AbstractDisplayMode end
 
+"""
+    Debug <: AbstractDisplayMode
+
+Print exhaustive diagnostic output for every iteration.
+
+Shows the current point, gradient, Hessian diagonal/condition, step details,
+predicted vs. actual reduction, ρ, trust-region radius update, and
+accept/reject reasoning.  Useful for investigating why steps are rejected
+in problems like ODE parameter estimation.
+"""
+struct Debug <: AbstractDisplayMode end
+
 # Progress display functions
 function display_header(::Silent) end
 
@@ -55,6 +67,133 @@ function display_final(::Union{Final, Iteration, Verbose}, result)
     @printf "  Function evaluations:  %d\n" result.function_evaluations
     @printf "  Gradient evaluations:  %d\n" result.gradient_evaluations
     @printf "  Termination reason:    %s\n" result.termination_reason
+end
+
+# ────────────────────────────────────────────────────────────────────────────
+# Debug display methods
+# ────────────────────────────────────────────────────────────────────────────
+
+function display_header(::Debug)
+    println("═"^72)
+    println("  RETRO DEBUG MODE — Detailed iteration diagnostics")
+    println("═"^72)
+end
+
+# Compact line is suppressed for Debug; display_debug_info handles everything.
+display_iteration(::Debug, iter, f, g_norm, Delta, rho, status) = nothing
+
+function display_final(::Debug, result)
+    println()
+    println("═"^72)
+    @printf "  DEBUG SUMMARY\n"
+    @printf "  Final objective value: %.10e\n" result.fx
+    @printf "  Final gradient norm:   %.10e\n" norm(result.gx)
+    @printf "  Iterations:            %d\n" result.iterations
+    @printf "  Function evaluations:  %d\n" result.function_evaluations
+    @printf "  Gradient evaluations:  %d\n" result.gradient_evaluations
+    @printf "  Termination reason:    %s\n" result.termination_reason
+    println("═"^72)
+end
+
+# ── Initial state (called once before the loop) ──────────────────────────
+
+display_debug_initial(::AbstractDisplayMode, args...) = nothing
+
+function display_debug_initial(::Debug, x, f, g, g_norm, Delta)
+    println()
+    println("┌─── Initial State ", "─"^(72 - 19))
+    println("│")
+    _debug_print_vec("│   x₀", x)
+    @printf "│   f(x₀)    = %.10e\n" f
+    @printf "│   ‖g₀‖     = %.10e\n" g_norm
+    _debug_print_vec("│   g₀", g)
+    @printf "│   Δ₀       = %.10e\n" Delta
+    println("│")
+    println("└", "─"^71)
+end
+
+# ── Per-iteration diagnostics ─────────────────────────────────────────────
+
+display_debug_info(::AbstractDisplayMode, args...; kwargs...) = nothing
+
+function display_debug_info(
+    ::Debug, k, x, g, g_norm, p, x_trial, Hp,
+    step_norm, f_current, f_trial,
+    pred_red, actual_red, rho,
+    Delta_old, Delta_new, status,
+    consecutive_rejections, mu,
+    g_dot_p, p_dot_Hp
+)
+    hdr = "─── Iteration $k "
+    println()
+    println("┌", hdr, "─"^max(0, 71 - length(hdr) - 1))
+    println("│")
+
+    # ── Current state ──
+    println("│ State:")
+    _debug_print_vec("│   x", x)
+    @printf "│   f(x)       = %.10e\n" f_current
+    @printf "│   ‖g‖        = %.10e\n" g_norm
+    _debug_print_vec("│   g", g)
+    @printf "│   Δ          = %.10e\n" Delta_old
+    println("│")
+
+    # ── Step ──
+    println("│ Step:")
+    _debug_print_vec("│   p", p)
+    _debug_print_vec("│   x_trial", x_trial)
+    @printf "│   ‖p‖        = %.10e\n" step_norm
+    _debug_print_vec("│   Hp", Hp)
+    @printf "│   gᵀp        = %.10e\n" g_dot_p
+    @printf "│   pᵀHp       = %.10e\n" p_dot_Hp
+    println("│")
+
+    # ── Reduction analysis ──
+    println("│ Reduction:")
+    @printf "│   pred_red    = %.10e   (−gᵀp − ½ pᵀHp)\n" pred_red
+    @printf "│   actual_red  = %.10e   (f − f_trial)\n" actual_red
+    @printf "│   f_trial     = %.10e\n" f_trial
+    @printf "│   ρ           = %+.10f\n" rho
+
+    if pred_red ≤ 0
+        println("│   ⚠  Predicted reduction ≤ 0 — model not descent!")
+    end
+    if actual_red < 0
+        println("│   ⚠  Actual reduction < 0 — objective INCREASED by $(@sprintf("%.6e", -actual_red))")
+    end
+    println("│")
+
+    # ── Decision ──
+    println("│ Decision: ", status)
+    @printf "│   ρ = %+.8f   vs   μ = %.4f\n" rho mu
+
+    if Delta_new < Delta_old
+        @printf "│   Δ: %.6e → %.6e  (shrunk ×%.4f)\n" Delta_old Delta_new (Delta_new / Delta_old)
+    elseif Delta_new > Delta_old
+        @printf "│   Δ: %.6e → %.6e  (expanded ×%.4f)\n" Delta_old Delta_new (Delta_new / Delta_old)
+    else
+        @printf "│   Δ: %.6e  (unchanged)\n" Delta_old
+    end
+
+    if consecutive_rejections > 0
+        @printf "│   Consecutive rejections: %d\n" consecutive_rejections
+    end
+
+    println("└", "─"^71)
+end
+
+# ── Helper: print a vector compactly ──────────────────────────────────────
+
+function _debug_print_vec(prefix, v)
+    n = length(v)
+    if n ≤ 8
+        vals = join([@sprintf("%.6e", vi) for vi in v], ", ")
+        println("$prefix = [$vals]")
+    else
+        first4 = join([@sprintf("%.6e", v[i]) for i in 1:4], ", ")
+        last2  = join([@sprintf("%.6e", v[i]) for i in n-1:n], ", ")
+        println("$prefix = [$first4, …, $last2]  (n=$n)")
+    end
 end
 
 # Progress meter integration

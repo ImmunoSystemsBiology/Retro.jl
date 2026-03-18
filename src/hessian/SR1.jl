@@ -33,15 +33,16 @@ end
 # Update SR1 approximation
 function update_hessian!(sr1::SR1{T}, state, cache::RetroCache{T}, obj, x) where {T}
     if !state.initialized
-        gradient!(cache.g_prev, cache, obj, x)
+        # cache.g already holds the gradient from value_and_gradient!
+        copy!(cache.g_prev, cache.g)
         copy!(cache.x_prev, x)
         state.initialized = true
         return
     end
     
     # s = x_k - x_{k-1},  y = g_k - g_{k-1}
+    # cache.g already contains g_k (maintained by the optimizer loop)
     @. cache.s = x - cache.x_prev
-    gradient!(cache.g, cache, obj, x)
     @. cache.y = cache.g - cache.g_prev
     
     # Compute H*s using current approximation

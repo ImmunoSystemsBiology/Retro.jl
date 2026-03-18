@@ -148,6 +148,42 @@ function scale_gradient!(scaled_g::AbstractVector{T}, g::AbstractVector{T},
 end
 
 """
+    compute_affine_scaling!(D, dv, x, g, lb, ub)
+
+Compute the Coleman-Li affine scaling (Definition 2, Coleman & Li 1994).
+
+For each variable:
+- If the gradient points toward a finite bound: `v = x - bound`, `dv = 1`
+- Otherwise (unconstrained direction): `v = sign(g)`, `dv = 0`
+
+The relevant bound depends on gradient sign: `lb` if `g ≥ 0`, `ub` if `g < 0`.
+
+Stores `D = √|v|` (clamped away from zero) and the Jacobian diagonal `dv`.
+"""
+function compute_affine_scaling!(D::AbstractVector{T}, dv::AbstractVector{T},
+                                 x::AbstractVector{T}, g::AbstractVector{T},
+                                 lb::AbstractVector{T}, ub::AbstractVector{T}) where {T<:Real}
+    for i in eachindex(x)
+        if g[i] >= zero(T) && isfinite(lb[i])
+            # Lower bound is the relevant constraint
+            v_i = x[i] - lb[i]
+            dv[i] = one(T)
+        elseif g[i] < zero(T) && isfinite(ub[i])
+            # Upper bound is the relevant constraint
+            v_i = x[i] - ub[i]
+            dv[i] = one(T)
+        else
+            # No relevant finite bound
+            v_i = g[i] != zero(T) ? sign(g[i]) : one(T)
+            dv[i] = zero(T)
+        end
+
+        # D = sqrt(|v|), clamped away from zero
+        D[i] = max(sqrt(abs(v_i)), T(1e-10))
+    end
+end
+
+"""
     find_step_to_bound(x, p, lb, ub)
 
 Find the maximum step length α ∈ (0, 1] such that x + α*p stays feasible.
@@ -271,8 +307,17 @@ function apply_reflective_bounds!(x_trial::AbstractVector{T}, x::AbstractVector{
         end
         
         if !should_reflect
-            # Local minimum at boundary, stop
-            break
+            # Local minimum at boundary: fix this component at the bound
+            # and continue stepping in the remaining free directions.
+            # (Previously the code would `break` here, losing all progress
+            # the other components could have made.)
+            p_remaining[hit_index] = zero(T)
+            
+            # If nothing left, stop
+            if norm(p_remaining) < eps(T) * norm(p)
+                break
+            end
+            continue  # try the next bound intersection with the updated p_remaining
         end
         
         # Reflect: negate the component that hit the boundary
@@ -311,6 +356,38 @@ function project_bounds!(x::AbstractVector{T}, lb::AbstractVector{T},
             x[i] = min(x[i], ub[i])
         end
     end
+end
+
+"""
+    projected_gradient_norm(g, x, lb, ub; tol=1e-8)
+
+Compute the norm of the projected (free) gradient for bound-constrained
+optimality.  At a constrained optimum every free component of the gradient
+is zero; the remaining (active-bound) components are allowed to be nonzero
+because they point into the infeasible region.
+
+A gradient component is considered "active" (and zeroed out) when the
+variable sits at the bound (within `tol`) and the gradient would push it
+further into the infeasible region:
+
+* ``x_i \\le \\mathrm{lb}_i + \\mathrm{tol}`` **and** ``g_i > 0``
+* ``x_i \\ge \\mathrm{ub}_i - \\mathrm{tol}`` **and** ``g_i < 0``
+"""
+function projected_gradient_norm(g::AbstractVector{T}, x::AbstractVector{T},
+                                 lb::AbstractVector{T}, ub::AbstractVector{T};
+                                 tol::T = T(1e-8)) where {T<:Real}
+    s = zero(T)
+    @inbounds for i in eachindex(g)
+        gi = g[i]
+        at_lb = isfinite(lb[i]) && x[i] <= lb[i] + tol
+        at_ub = isfinite(ub[i]) && x[i] >= ub[i] - tol
+        if (at_lb && gi > zero(T)) || (at_ub && gi < zero(T))
+            # Active bound with gradient pointing into infeasible region — skip
+            continue
+        end
+        s += gi * gi
+    end
+    return sqrt(s)
 end
 
 """

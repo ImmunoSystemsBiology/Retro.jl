@@ -42,9 +42,20 @@ Supertype for Hessian approximation strategies.
 Every subtype must implement [`init_hessian!`](@ref), [`update_hessian!`](@ref),
 and [`apply_hessian!`](@ref).
 
+Optionally implement [`reset_hessian!`](@ref) to support resetting the
+approximation when the optimizer stagnates.
+
 Concrete subtypes: [`BFGS`](@ref), [`SR1`](@ref), [`ExactHessian`](@ref).
 """
 abstract type AbstractHessianApproximation end
+
+"""
+    reset_hessian!(approx, state, cache)
+
+Reset the Hessian approximation.  Default is a no-op;
+subtypes can override for smarter recovery on stagnation.
+"""
+reset_hessian!(::AbstractHessianApproximation, state, cache) = nothing
 
 """
     AbstractDisplayMode

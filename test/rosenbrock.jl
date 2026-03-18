@@ -144,10 +144,12 @@ using LinearAlgebra
         
         for x0 in starting_points
             prob = RetroProblem(rosenbrock, x0, AutoForwardDiff())
-            result = optimize(prob; maxiter=50, display=Silent())
+            result = optimize(prob; maxiter=200, display=Silent())
             
             @test result isa RetroResult
             # All should converge to approximately the same point
+
+            @test is_successful(result)
             if is_successful(result)
                 @test norm(result.x - [1.0, 1.0]) < 0.2
             end
@@ -162,6 +164,8 @@ using LinearAlgebra
         options_gtol = RetroOptions(gtol_a=1e-4)
         result_gtol = optimize(prob; maxiter=100, options=options_gtol, display=Silent())
         
+        @test is_successful(result_gtol)
+
         if result_gtol.termination_reason == :gtol
             @test norm(result_gtol.gx) < 1e-4
         end
