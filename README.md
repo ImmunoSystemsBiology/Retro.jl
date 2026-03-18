@@ -12,6 +12,7 @@ Reflective-bounds Trust Region Optimizer
 [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://max-de-rooij.com/Retro.jl/dev)
 [![License](https://img.shields.io/badge/License-BSD--3-green?labelColor=white)](https://github.com/max-de-rooij/Retro.jl/blob/main/LICENSE)
 [![tests](https://github.com/max-de-rooij/Retro.jl/actions/workflows/tests.yml/badge.svg)](https://github.com/max-de-rooij/Retro.jl/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/github/max-de-rooij/Retro.jl/graph/badge.svg?token=nR9HbjDn5O)](https://codecov.io/github/max-de-rooij/Retro.jl)
 
 Retro (REflective-bounds Trust-Region Optimizer): A high-performance Julia package for bound-constrained optimization using trust-region reflective methods.
 
