@@ -53,28 +53,18 @@ Update the Hessian approximation stored in `cache.B` using the latest iterate.
 """
 function update_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}, obj, x) where {T}
     if !state.initialized
-        # First call: just record current gradient and position.
-        # cache.g already holds the gradient from value_and_gradient!
-        # in the optimizer loop — no need to re-evaluate.
         copy!(cache.g_prev, cache.g)
         copy!(cache.x_prev, x)
         state.initialized = true
         return
     end
     
-    # s = x_k - x_{k-1},  y = g_k - g_{k-1}
-    # cache.g already contains g_k (set by the optimizer after accepting a step
-    # or unchanged after a rejection), so no gradient! call is needed.
     @. cache.s = x - cache.x_prev
     @. cache.y = cache.g - cache.g_prev
     
     # Check s'*y > 0 (curvature condition)
     sy = dot(cache.s, cache.y)
     
-    # Rescale B on first successful update (Nocedal & Wright §6.1).
-    # The code stores B (direct Hessian approximation), not the inverse H.
-    # The correct initial scaling for B₀ is  y'y / s'y  (not s'y / y'y,
-    # which applies to the inverse Hessian formulation).
     # Clamped to [1e-8, 1e8] to prevent extreme values on badly-scaled problems.
     if !state.first_update_done && sy > eps(T)
         yy = dot(cache.y, cache.y)
@@ -121,7 +111,6 @@ function update_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}, obj, x) whe
     copy!(cache.x_prev, x)
 end
 
-# Apply BFGS Hessian to vector: H * v = B * v
 """
     apply_hessian!(Hv, approx, state, cache, v)
 

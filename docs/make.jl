@@ -8,7 +8,7 @@ makedocs(
     modules  = [Retro],
     format   = Documenter.HTML(
         prettyurls = !is_live && get(ENV, "CI", nothing) == "true",
-        canonical  = "https://max-de-rooij.github.io/Retro.jl/stable",
+        canonical  = "https://immunosystemsbiology.github.io/Retro.jl/stable",
         assets     = ["assets/custom.css", "assets/custom.js"],
         collapselevel = 1,
     ),
@@ -55,7 +55,7 @@ makedocs(
 )
 
 deploydocs(
-    repo = "github.com/max-de-rooij/Retro.jl.git",
+    repo = "github.com/immunosystemsbiology/Retro.jl.git",
     devbranch = "main",
 )
 

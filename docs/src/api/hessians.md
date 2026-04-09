@@ -33,4 +33,5 @@ All Hessian approximations implement these methods:
 init_hessian!
 update_hessian!
 apply_hessian!
+reset_hessian!
 ```

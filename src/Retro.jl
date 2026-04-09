@@ -35,7 +35,7 @@ export RetroResult, is_successful
 include("hessian/BFGS.jl")
 include("hessian/SR1.jl")
 include("hessian/ExactHessian.jl")
-export BFGS, SR1, ExactHessian, init_hessian!, update_hessian!, apply_hessian!
+export BFGS, SR1, ExactHessian, init_hessian!, update_hessian!, apply_hessian!, reset_hessian!
 
 # Trust-region solvers (must come before subspace methods that dispatch on them)
 include("trsolver/EigenTRSolver.jl")
@@ -52,7 +52,7 @@ export TwoDimSubspace, CGSubspace, FullSpace, init_subspace!, build_subspace!, s
 include("steps/Reflection.jl")
 export compute_scaling!, scale_gradient!, compute_affine_scaling!,
        apply_reflective_bounds!, project_bounds!,
-       initialize_away_from_bounds!, find_step_to_bound, compute_cauchy_boundary_point!
+       initialize_away_from_bounds!, find_step_to_bound, compute_cauchy_boundary_point!, projected_gradient_norm
 
 include("steps/StepAcceptance.jl")
 export predicted_reduction, actual_reduction, accept_step, update_trust_region_radius,

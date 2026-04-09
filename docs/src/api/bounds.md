@@ -8,6 +8,7 @@ are extending Retro or writing custom step logic.
 
 ```@docs
 compute_scaling!
+compute_affine_scaling!
 scale_gradient!
 ```
 
@@ -25,4 +26,5 @@ find_step_to_bound
 Retro.reflect_step!
 apply_reflective_bounds!
 compute_cauchy_boundary_point!
+projected_gradient_norm
 ```

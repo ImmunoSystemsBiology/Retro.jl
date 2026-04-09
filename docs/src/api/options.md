@@ -14,6 +14,7 @@ Silent
 Iteration
 Final
 Verbose
+Debug
 ```
 
 ## Cache
