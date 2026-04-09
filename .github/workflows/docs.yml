@@ -11,6 +11,7 @@ on:
     paths:
       - docs/**
     tags: '*'
+  workflow_dispatch: 
 jobs:
   build:
     # These permissions are needed to:
