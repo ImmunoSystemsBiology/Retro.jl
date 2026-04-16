@@ -33,7 +33,6 @@ struct RetroProblem{OBJ<:AbstractObjectiveFunction, T<:AbstractVector}
     end
 end
 
-# AD-only: objective + backend → ADObjectiveFunction
 function RetroProblem(func::Function, x0::AbstractVector{T}, adtype::AbstractADType;
                      lb::AbstractVector = fill(eltype(x0)(-Inf), length(x0)),
                      ub::AbstractVector = fill(eltype(x0)(Inf), length(x0))) where {T<:Real}
@@ -42,7 +41,6 @@ function RetroProblem(func::Function, x0::AbstractVector{T}, adtype::AbstractADT
     RetroProblem(obj, x0, T.(lb), T.(ub))
 end
 
-# User gradient + AD Hessian: objective + grad! + backend → GradientObjectiveFunction
 function RetroProblem(func::Function, grad!::Function, x0::AbstractVector{T}, adtype::AbstractADType;
                      lb::AbstractVector = fill(eltype(x0)(-Inf), length(x0)),
                      ub::AbstractVector = fill(eltype(x0)(Inf), length(x0))) where {T<:Real}
@@ -50,7 +48,6 @@ function RetroProblem(func::Function, grad!::Function, x0::AbstractVector{T}, ad
     RetroProblem(obj, x0, T.(lb), T.(ub))
 end
 
-# Fully analytic: objective + grad! + hess! → AnalyticObjectiveFunction (no AD needed)
 function RetroProblem(func::Function, grad!::Function, hess!::Function, x0::AbstractVector{T};
                      lb::AbstractVector = fill(eltype(x0)(-Inf), length(x0)),
                      ub::AbstractVector = fill(eltype(x0)(Inf), length(x0))) where {T<:Real}

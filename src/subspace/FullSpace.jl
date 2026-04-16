@@ -6,9 +6,8 @@ original space. It is more expensive than subspace methods, but can be more accu
 """
 struct FullSpace <: AbstractSubspace end
 
-# FullSpace state
 mutable struct FullSpaceState{T<:Real, M}
-    H::M  # Full Hessian matrix
+    H::M  
     n::Int
     
     function FullSpaceState{T}(n::Int) where {T}
@@ -26,14 +25,11 @@ function build_subspace!(::FullSpace, state, cache::RetroCache{T}, hess_approx, 
     n = state.n
 
     for i in 1:n
-        # Standard basis vector
         fill!(cache.tmp, zero(T))
         cache.tmp[i] = one(T)
         
-        # Compute H * e_i
         apply_hessian!(cache.v1, hess_approx, hess_state, cache, cache.tmp)
         
-        # Store in column i
         for j in 1:n
             state.H[j,i] = cache.v1[j]
         end
@@ -42,14 +38,12 @@ function build_subspace!(::FullSpace, state, cache::RetroCache{T}, hess_approx, 
 end
 
 function solve_subspace_tr!(::AbstractTRSolver, ::FullSpace, state, cache::RetroCache{T}, Δ::T) where {T}
-    # Newton step: solve H * p = -g
-    try
-        # Regular linear solve
-        copy!(cache.tmp, cache.g)
-        ldiv!(factorize(state.H), cache.tmp)  # Solve H \ g
-        @. cache.p = -cache.tmp  # Newton direction
 
-        # Check trust-region constraint
+    try
+        copy!(cache.tmp, cache.g)
+        ldiv!(factorize(state.H), cache.tmp) 
+        @. cache.p = -cache.tmp 
+
         p_norm = norm(cache.p)
         if p_norm > Δ
             @. cache.p *= Δ / p_norm
@@ -58,7 +52,6 @@ function solve_subspace_tr!(::AbstractTRSolver, ::FullSpace, state, cache::Retro
             return p_norm
         end
     catch
-        # Fallback to Cauchy step if solve fails
         g_norm = norm(cache.g)
         if g_norm > eps(T)
             α = min(Δ / g_norm, one(T))

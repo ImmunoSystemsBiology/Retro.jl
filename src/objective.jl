@@ -66,8 +66,6 @@ struct AnalyticObjectiveFunction{F,G,H} <: AbstractObjectiveFunction
     hess!::H
 end
 
-# ── Objective evaluation ─────────────────────────────────────────────────────
-
 """
     objfunc!(cache, obj, x) -> f(x)
 
@@ -88,8 +86,6 @@ function objfunc!(cache::RetroCache, obj::AnalyticObjectiveFunction, x)
     return obj.func(x)
 end
 
-# ── Gradient evaluation ──────────────────────────────────────────────────────
-
 """
     gradient!(g, cache, obj, x)
 
@@ -109,8 +105,6 @@ function DifferentiationInterface.gradient!(g, cache::RetroCache, obj::AnalyticO
     cache.g_calls += 1
     obj.grad!(g, x)
 end
-
-# ── Combined value + gradient (saves one forward pass) ───────────────────────
 
 """
     value_and_gradient!(g, cache, obj, x) -> f(x)
@@ -141,8 +135,6 @@ function DifferentiationInterface.value_and_gradient!(g, cache::RetroCache, obj:
     return val
 end
 
-# ── Hessian evaluation (for ExactHessian approximation) ──────────────────────
-
 """
     hessian!(H, cache, obj, x)
 
@@ -162,8 +154,6 @@ function DifferentiationInterface.hessian!(H, cache::RetroCache, obj::AnalyticOb
     cache.h_calls += 1
     obj.hess!(H, x)
 end
-
-# ── Combined value + gradient + Hessian ──────────────────────────────────────
 
 """
     value_gradient_and_hessian!(g, H, cache, obj, x) -> f(x)

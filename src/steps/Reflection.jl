@@ -46,7 +46,6 @@ function initialize_away_from_bounds!(x::AbstractVector{T}, lb::AbstractVector{T
         has_ub = isfinite(ub[i])
         
         if has_lb && has_ub
-            # Two-sided bounds: use relative epsilon based on interval width
             width = ub[i] - lb[i]
             rel_eps = min(epsilon, width * T(0.01))
             
@@ -59,14 +58,12 @@ function initialize_away_from_bounds!(x::AbstractVector{T}, lb::AbstractVector{T
             end
             
         elseif has_lb
-            # Lower bound only
             if x[i] <= lb[i] + epsilon
                 x[i] = lb[i] + epsilon
                 modified = true
             end
             
         elseif has_ub
-            # Upper bound only
             if x[i] >= ub[i] - epsilon
                 x[i] = ub[i] - epsilon
                 modified = true
@@ -97,12 +94,10 @@ function compute_scaling!(scaling::AbstractVector{T}, x::AbstractVector{T},
         has_ub = isfinite(ub[i])
         
         if has_lb && has_ub
-            # Two-sided bounds: use distance to nearest bound
             width = ub[i] - lb[i]
             dist_to_lb = (x[i] - lb[i]) / width
             dist_to_ub = (ub[i] - x[i]) / width
             
-            # Coleman-Li scaling based on proximity to bounds
             min_dist = min(dist_to_lb, dist_to_ub)
             if min_dist < theta1
                 scaling[i] = max(min_dist / theta1, T(0.01))
@@ -111,7 +106,6 @@ function compute_scaling!(scaling::AbstractVector{T}, x::AbstractVector{T},
             end
             
         elseif has_lb
-            # Lower bound only
             dist = x[i] - lb[i]
             scale_dist = max(abs(x[i]), one(T)) * theta1
             if dist < scale_dist
@@ -121,7 +115,6 @@ function compute_scaling!(scaling::AbstractVector{T}, x::AbstractVector{T},
             end
             
         elseif has_ub
-            # Upper bound only
             dist = ub[i] - x[i]
             scale_dist = max(abs(x[i]), one(T)) * theta1
             if dist < scale_dist
@@ -131,7 +124,6 @@ function compute_scaling!(scaling::AbstractVector{T}, x::AbstractVector{T},
             end
             
         else
-            # No bounds
             scaling[i] = one(T)
         end
     end
@@ -165,20 +157,16 @@ function compute_affine_scaling!(D::AbstractVector{T}, dv::AbstractVector{T},
                                  lb::AbstractVector{T}, ub::AbstractVector{T}) where {T<:Real}
     for i in eachindex(x)
         if g[i] >= zero(T) && isfinite(lb[i])
-            # Lower bound is the relevant constraint
             v_i = x[i] - lb[i]
             dv[i] = one(T)
         elseif g[i] < zero(T) && isfinite(ub[i])
-            # Upper bound is the relevant constraint
             v_i = x[i] - ub[i]
             dv[i] = one(T)
         else
-            # No relevant finite bound
             v_i = g[i] != zero(T) ? sign(g[i]) : one(T)
             dv[i] = zero(T)
         end
 
-        # D = sqrt(|v|), clamped away from zero
         D[i] = max(sqrt(abs(v_i)), T(1e-10))
     end
 end
@@ -200,7 +188,6 @@ function find_step_to_bound(x::AbstractVector{T}, p::AbstractVector{T},
     
     for i in eachindex(x)
         if p[i] < -eps(T) && isfinite(lb[i])
-            # Moving toward lower bound
             α_i = (lb[i] - x[i]) / p[i]
             if α_i > zero(T) && α_i < α_max
                 α_max = α_i
@@ -208,7 +195,6 @@ function find_step_to_bound(x::AbstractVector{T}, p::AbstractVector{T},
                 hit_bound = :lower
             end
         elseif p[i] > eps(T) && isfinite(ub[i])
-            # Moving toward upper bound
             α_i = (ub[i] - x[i]) / p[i]
             if α_i > zero(T) && α_i < α_max
                 α_max = α_i
@@ -233,16 +219,12 @@ the reflection is not performed (return false).
 """
 function reflect_step!(p::AbstractVector{T}, hit_index::Int, hit_bound::Symbol,
                       g::AbstractVector{T}) where {T<:Real}
-    # Check if gradient indicates a local minimum at boundary
-    # For lower bound: if g[i] > 0, minimum is at bound (don't reflect)
-    # For upper bound: if g[i] < 0, minimum is at bound (don't reflect)
     if hit_bound == :lower && g[hit_index] > zero(T)
-        return false  # Local minimum at lower bound
+        return false  
     elseif hit_bound == :upper && g[hit_index] < zero(T)
-        return false  # Local minimum at upper bound
+        return false 
     end
-    
-    # Reflect: negate the component that hit the boundary
+
     p[hit_index] = -p[hit_index]
     
     return true
@@ -270,66 +252,50 @@ function apply_reflective_bounds!(x_trial::AbstractVector{T}, x::AbstractVector{
                                 max_reflections::Int = DEFAULT_MAX_REFLECTIONS) where {T<:Real}
     n = length(x)
     
-    # Start from current point
     @. x_trial = x
     
-    # Working copy of step direction
     p_remaining = copy(p)
-    α_taken = zero(T)
     
-    for reflection in 1:max_reflections
-        # Find step to boundary
+    for _ in 1:max_reflections
         α_to_bound, hit_index, hit_bound = find_step_to_bound(x_trial, p_remaining, lb, ub)
         
         if hit_bound == :none || α_to_bound >= one(T) - eps(T)
-            # No boundary hit, take full remaining step
             @. x_trial = x_trial + p_remaining
             break
         end
         
-        # Move to the boundary (just before it)
-        α_step = α_to_bound * (one(T) - T(1e-10))  # Slight pullback to stay interior
+        α_step = α_to_bound * (one(T) - T(1e-10)) 
         @. x_trial = x_trial + α_step * p_remaining
         
-        # Update remaining step
         α_remaining = one(T) - α_step
         @. p_remaining = α_remaining * p_remaining
         
-        # Check if we should reflect
         should_reflect = true
         if g !== nothing
-            # Check gradient at boundary for local minimum
             if hit_bound == :lower && g[hit_index] > zero(T)
-                should_reflect = false  # Minimum at lower bound
+                should_reflect = false 
             elseif hit_bound == :upper && g[hit_index] < zero(T)
-                should_reflect = false  # Minimum at upper bound
+                should_reflect = false  
             end
         end
         
         if !should_reflect
-            # Local minimum at boundary: fix this component at the bound
-            # and continue stepping in the remaining free directions.
-            # (Previously the code would `break` here, losing all progress
-            # the other components could have made.)
             p_remaining[hit_index] = zero(T)
             
             # If nothing left, stop
             if norm(p_remaining) < eps(T) * norm(p)
                 break
             end
-            continue  # try the next bound intersection with the updated p_remaining
+            continue  
         end
         
-        # Reflect: negate the component that hit the boundary
         p_remaining[hit_index] = -p_remaining[hit_index]
-        
-        # If remaining step is too small, stop
+
         if norm(p_remaining) < eps(T) * norm(p)
             break
         end
     end
     
-    # Final safety clamping with small interior offset
     eps_interior = T(DEFAULT_BOUNDS_EPSILON)
     for i in 1:n
         if isfinite(lb[i])
@@ -382,7 +348,6 @@ function projected_gradient_norm(g::AbstractVector{T}, x::AbstractVector{T},
         at_lb = isfinite(lb[i]) && x[i] <= lb[i] + tol
         at_ub = isfinite(ub[i]) && x[i] >= ub[i] - tol
         if (at_lb && gi > zero(T)) || (at_ub && gi < zero(T))
-            # Active bound with gradient pointing into infeasible region — skip
             continue
         end
         s += gi * gi
@@ -408,12 +373,10 @@ function compute_cauchy_boundary_point!(x_cauchy::AbstractVector{T}, x::Abstract
         @. x_cauchy = x
         return
     end
-    
-    # Steepest descent direction (normalized)
+
     descent_dir = -g / g_norm
     
-    # Find maximum step in descent direction respecting bounds
-    α_max = Delta  # Start with trust region constraint
+    α_max = Delta 
     
     for i in 1:n
         if descent_dir[i] < -eps(T) && isfinite(lb[i])
@@ -428,10 +391,8 @@ function compute_cauchy_boundary_point!(x_cauchy::AbstractVector{T}, x::Abstract
             end
         end
     end
-    
-    # Cauchy step
+
     @. x_cauchy = x + α_max * descent_dir
-    
-    # Project to ensure feasibility
+
     project_bounds!(x_cauchy, lb, ub)
 end

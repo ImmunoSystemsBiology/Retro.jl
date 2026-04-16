@@ -31,28 +31,23 @@ mutable struct ExactHessianState{T<:Real, M<:AbstractMatrix{T}}
     ExactHessianState{T}(n::Int) where {T} = new{T, Matrix{T}}(zeros(T, n, n), zeros(T, n), false)
 end
 
-# Initialize ExactHessian
 function init_hessian!(::ExactHessian{T}, cache::RetroCache{T}) where {T}
     n = length(cache.g)
     return ExactHessianState{T}(n)
 end
 
-# Update ExactHessian
-function update_hessian!(eh::ExactHessian{T}, state, cache::RetroCache{T}, obj, x) where {T}
-    # Check if we need to recompute
+function update_hessian!(eh::ExactHessian{T}, state::ExactHessianState{T}, cache::RetroCache{T}, obj::AbstractObjectiveFunction, x) where {T}
     if !state.valid || norm(x - state.x_cached) > eps(T)
         try
             hessian!(state.H, cache, obj, x)
             
-            # Add regularization if needed
             for i in 1:size(state.H, 1)
                 state.H[i, i] += eh.regularization
             end
             
             copy!(state.x_cached, x)
             state.valid = true
-        catch e
-            # Fallback to scaled identity if Hessian computation fails
+        catch 
             fill!(state.H, zero(T))
             for i in 1:size(state.H, 1)
                 state.H[i, i] = one(T)
@@ -62,27 +57,21 @@ function update_hessian!(eh::ExactHessian{T}, state, cache::RetroCache{T}, obj, 
     end
 end
 
-# Apply ExactHessian to vector: H * v
-function apply_hessian!(Hv, eh::ExactHessian{T}, state, cache::RetroCache{T}, v) where {T}
+function apply_hessian!(Hv, ::ExactHessian{T}, state::ExactHessianState{T}, cache::RetroCache{T}, v) where {T}
     if state.valid
         mul!(Hv, state.H, v)
     else
-        # Fallback to identity
         copy!(Hv, v)
     end
 end
 
-# Solve Newton direction: H * d = g, return d (the Newton direction)
-function solve_newton_direction!(d, eh::ExactHessian{T}, state, cache::RetroCache{T}, g) where {T}
+function solve_newton_direction!(d, ::ExactHessian{T}, state::ExactHessianState{T}, cache::RetroCache{T}, g) where {T}
     if !state.valid
-        # Fallback to steepest descent
         copy!(d, g)
         return false
     end
     
-    # Solve H * d = g using Cholesky if possible, otherwise LU
     try
-        # Try Cholesky first (for positive definite H)
         F = cholesky(Symmetric(state.H), check=false)
         if issuccess(F)
             d .= F \ g
@@ -91,12 +80,10 @@ function solve_newton_direction!(d, eh::ExactHessian{T}, state, cache::RetroCach
     catch
     end
     
-    # Fallback to LU factorization (handles indefinite/singular)
     try
         d .= state.H \ g
         return true
     catch
-        # If solve fails, use steepest descent
         copy!(d, g)
         return false
     end

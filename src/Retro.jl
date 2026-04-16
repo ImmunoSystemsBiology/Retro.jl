@@ -19,7 +19,7 @@ export AbstractObjectiveFunction, AbstractSubspace, AbstractTRSolver,
 include("problem/RetroCache.jl")
 export RetroCache
 
-# Then objective functions (which depend on cache)
+# Then objective functions
 include("objective.jl")
 export ADObjectiveFunction, GradientObjectiveFunction, AnalyticObjectiveFunction,
        objfunc!, gradient!, hessian!, value_and_gradient!, value_gradient_and_hessian!
@@ -37,7 +37,7 @@ include("hessian/SR1.jl")
 include("hessian/ExactHessian.jl")
 export BFGS, SR1, ExactHessian, init_hessian!, update_hessian!, apply_hessian!, reset_hessian!
 
-# Trust-region solvers (must come before subspace methods that dispatch on them)
+# Trust-region solvers
 include("trsolver/EigenTRSolver.jl")
 include("trsolver/CauchyTRSolver.jl")
 export EigenTRSolver, CauchyTRSolver, solve_tr!

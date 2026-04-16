@@ -20,7 +20,6 @@ end
 
 BFGS(; kwargs...) = BFGS{Float64}(; kwargs...)
 
-# BFGS state
 mutable struct BFGSState{T<:Real}
     initialized::Bool
     first_update_done::Bool
@@ -28,7 +27,6 @@ mutable struct BFGSState{T<:Real}
     BFGSState{T}() where {T} = new{T}(false, false)
 end
 
-# Initialize BFGS
 """
     init_hessian!(approx, cache) -> state
 
@@ -36,7 +34,6 @@ Initialise the Hessian approximation `approx`, writing the initial matrix into
 `cache.B`.  Returns an opaque `state` object that tracks update history.
 """
 function init_hessian!(bfgs::BFGS{T}, cache::RetroCache{T}) where {T}
-    # Initialize B to scaled identity
     n = length(cache.g)
     cache.B .= zero(T)
     for i in 1:n
@@ -45,13 +42,12 @@ function init_hessian!(bfgs::BFGS{T}, cache::RetroCache{T}) where {T}
     return BFGSState{T}()
 end
 
-# Update BFGS approximation B_{k+1} = B_k - (B_k*s*s'*B_k)/(s'*B_k*s) + (y*y')/(y's)
 """
     update_hessian!(approx, state, cache, obj, x)
 
 Update the Hessian approximation stored in `cache.B` using the latest iterate.
 """
-function update_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}, obj, x) where {T}
+function update_hessian!(bfgs::BFGS{T}, state::BFGSState{T}, cache::RetroCache{T}, ::AbstractObjectiveFunction, x) where {T}
     if !state.initialized
         copy!(cache.g_prev, cache.g)
         copy!(cache.x_prev, x)
@@ -62,10 +58,8 @@ function update_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}, obj, x) whe
     @. cache.s = x - cache.x_prev
     @. cache.y = cache.g - cache.g_prev
     
-    # Check s'*y > 0 (curvature condition)
     sy = dot(cache.s, cache.y)
     
-    # Clamped to [1e-8, 1e8] to prevent extreme values on badly-scaled problems.
     if !state.first_update_done && sy > eps(T)
         yy = dot(cache.y, cache.y)
         if yy > eps(T)
@@ -76,21 +70,16 @@ function update_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}, obj, x) whe
     end
     
     if sy > eps(T) || (bfgs.damped && !bfgs.skip_update)
-        # Compute Bs = B * s
         mul!(cache.Bs, cache.B, cache.s)
         sBs = dot(cache.s, cache.Bs)
         
         if bfgs.damped && sy < 0.2 * sBs
-            # Powell damping: use modified y to ensure positive definiteness
             theta = 0.8 * sBs / (sBs - sy)
             @. cache.y = theta * cache.y + (1 - theta) * cache.Bs
             sy = 0.2 * sBs  # After damping
         end
         
         if sy > eps(T) && sBs > eps(T)
-            # BFGS update: B = B - Bs*Bs'/sBs + y*y'/sy
-            # Rank-2 update of B matrix
-            
             inv_sBs = 1 / sBs
             inv_sy = 1 / sy
             
@@ -103,10 +92,8 @@ function update_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}, obj, x) whe
             end
         end
     elseif bfgs.skip_update
-        # Skip update - curvature condition failed
     end
     
-    # Store for next iteration
     copy!(cache.g_prev, cache.g)
     copy!(cache.x_prev, x)
 end
@@ -116,7 +103,7 @@ end
 
 Compute the Hessian-vector product `Hv = B * v` using the current approximation.
 """
-function apply_hessian!(Hv, bfgs::BFGS{T}, state, cache::RetroCache{T}, v) where {T}
+function apply_hessian!(Hv, ::BFGS{T}, ::BFGSState{T}, cache::RetroCache{T}, v) where {T}
     mul!(Hv, cache.B, v)
 end
 
@@ -131,9 +118,8 @@ The diagonal scaling is based on the current B diagonal (preserving whatever
 per-parameter curvature information was accumulated) rather than resetting to
 a flat identity.
 """
-function reset_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}) where {T}
+function reset_hessian!(::BFGS{T}, state::BFGSState{T}, cache::RetroCache{T}) where {T}
     n = size(cache.B, 1)
-    # Preserve per-component curvature: use geometric mean of diagonal
     diag_vals = [abs(cache.B[i, i]) for i in 1:n]
     geomean = exp(sum(log.(max.(diag_vals, eps(T)))) / n)
     geomean = clamp(geomean, T(1e-8), T(1e8))
@@ -141,15 +127,12 @@ function reset_hessian!(bfgs::BFGS{T}, state, cache::RetroCache{T}) where {T}
     for i in 1:n
         cache.B[i, i] = geomean
     end
-    # Allow re-rescaling on the next successful update
     state.first_update_done = false
 end
 
-# Solve Newton direction: B * d = g, return d (the Newton direction)
-function solve_newton_direction!(d, bfgs::BFGS{T}, state, cache::RetroCache{T}, g) where {T}
-    # Solve B * d = g using the stored B matrix
+function solve_newton_direction!(d, ::BFGS{T}, ::BFGSState{T}, cache::RetroCache{T}, g) where {T}
+
     try
-        # Try Cholesky first (BFGS should maintain positive definiteness)
         F = cholesky(Symmetric(cache.B), check=false)
         if issuccess(F)
             d .= F \ g
@@ -158,12 +141,10 @@ function solve_newton_direction!(d, bfgs::BFGS{T}, state, cache::RetroCache{T}, 
     catch
     end
     
-    # Fallback to LU
     try
         d .= cache.B \ g
         return true
     catch
-        # If solve fails, use steepest descent
         copy!(d, g)
         return false
     end

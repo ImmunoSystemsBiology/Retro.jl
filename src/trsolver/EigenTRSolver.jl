@@ -107,10 +107,6 @@ function _brent_root_find(f, a::T, b::T, tol::T, max_iter::Int) where {T<:Real}
     return b
 end
 
-# ============================================================================
-# Main trust-region solve
-# ============================================================================
-
 """
     solve_tr!(solver, g, H, Δ, p) -> predicted_reduction
 
@@ -124,26 +120,21 @@ root-finding brackets the Lagrange multiplier σ as a robust fallback.
 function solve_tr!(solver::EigenTRSolver{T}, g::AbstractVector{T}, H::AbstractMatrix{T}, Delta::T, p::AbstractVector{T}) where {T}
     n = length(g)
 
-    # Handle trivial case
     if norm(g) < eps(T)
         fill!(p, zero(T))
         return zero(T)
     end
 
     try
-        # Compute eigenvalue decomposition
         eigen_result = eigen(Symmetric(H))
         λ = eigen_result.values
         V = eigen_result.vectors
 
-        # Transform gradient to eigenspace
         g_eigen = V' * g
 
-        # Find the optimal Lagrange multiplier σ
         λ_min = minimum(λ)
 
         if λ_min > solver.regularization
-            # H is positive definite, try unconstrained solution
             p_unconstrained = -H \ g
             if norm(p_unconstrained) ≤ Delta
                 copy!(p, p_unconstrained)
@@ -151,10 +142,8 @@ function solve_tr!(solver::EigenTRSolver{T}, g::AbstractVector{T}, H::AbstractMa
             end
         end
 
-        # Need to solve constrained problem: find σ such that ||p(σ)|| = Delta
         σ = max(-λ_min + solver.regularization, zero(T))
 
-        # --- Phase 1: Newton's method on the secular equation ---
         converged = false
         for iter in 1:20
             p_norm_sq = zero(T)
@@ -176,7 +165,6 @@ function solve_tr!(solver::EigenTRSolver{T}, g::AbstractVector{T}, H::AbstractMa
                 break
             end
 
-            # Newton update
             if abs(dp_dsigma) > eps(T)
                 σ += (p_norm - Delta) / (dp_dsigma * p_norm)
                 σ = max(σ, -λ_min + solver.regularization)
@@ -185,11 +173,9 @@ function solve_tr!(solver::EigenTRSolver{T}, g::AbstractVector{T}, H::AbstractMa
             end
         end
 
-        # --- Phase 2: Brent bracketing fallback ---
         if !converged
             σ_lo = max(-λ_min + solver.regularization, zero(T))
 
-            # Establish upper bracket where ||p(σ_hi)|| < Delta
             σ_hi = max(σ, one(T))
             for _ in 1:50
                 if sqrt(_secular_norm_sq(λ, g_eigen, σ_hi, n)) < Delta
@@ -198,12 +184,10 @@ function solve_tr!(solver::EigenTRSolver{T}, g::AbstractVector{T}, H::AbstractMa
                 σ_hi *= T(2)
             end
 
-            # Secular residual: positive when ||p|| > Δ, negative when ||p|| < Δ
             secular = σ_val -> sqrt(_secular_norm_sq(λ, g_eigen, σ_val, n)) - Delta
             σ = _brent_root_find(secular, σ_lo, σ_hi, T(1e-12), 50)
         end
 
-        # Compute final step
         p_eigen = similar(g_eigen)
         for i in 1:n
             denom = λ[i] + σ
@@ -214,18 +198,16 @@ function solve_tr!(solver::EigenTRSolver{T}, g::AbstractVector{T}, H::AbstractMa
             end
         end
 
-        # Transform back to original space
         mul!(p, V, p_eigen)
 
         return norm(p)
 
     catch e
-        # Last resort: Cauchy step
+        # Last resort
         return cauchy_step!(g, H, Delta, p)
     end
 end
 
-# Fallback Cauchy step
 function cauchy_step!(g::AbstractVector{T}, H::AbstractMatrix{T}, Delta::T, p::AbstractVector{T}) where {T}
     g_norm = norm(g)
     if g_norm < eps(T)
@@ -233,7 +215,6 @@ function cauchy_step!(g::AbstractVector{T}, H::AbstractMatrix{T}, Delta::T, p::A
         return zero(T)
     end
 
-    # Cauchy step: p = -α * g
     gHg = dot(g, H, g)
     if gHg > eps(T)
         α = min(g_norm^2 / gHg, Delta / g_norm)

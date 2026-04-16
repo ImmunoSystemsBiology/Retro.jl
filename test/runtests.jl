@@ -29,5 +29,21 @@ Random.seed!(1234)
     @testset "ODE Parameter Estimation Problems" begin
         include("ode.jl")
     end
+
+        @testset "Utility Functions" begin
+            include("utils.jl")
+        end
+
+        @testset "TR Solver Unit Tests" begin
+            include("trsolver.jl")
+        end
+
+        @testset "Display Modes and RetroResult" begin
+            include("displays.jl")
+        end
+
+        @testset "FullSpace and Solver Integration" begin
+            include("solvers.jl")
+        end
 end
 

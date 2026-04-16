@@ -40,7 +40,6 @@ function is_successful(result::RetroResult)
     return result.termination_reason in (:gtol, :ftol, :xtol)
 end
 
-# add display method for RetroResult
 function Base.show(io::IO, result::RetroResult{T, VT}) where {T<:Real, VT<:AbstractVector{T}}
     println(io, "RetroResult{", T, ", ", VT, "}:")
     println(io, "  Final objective value: ", result.fx)

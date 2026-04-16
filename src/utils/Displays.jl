@@ -38,7 +38,6 @@ in problems like ODE parameter estimation.
 """
 struct Debug <: AbstractDisplayMode end
 
-# Progress display functions
 function display_header(::Silent) end
 
 function display_header(::Union{Iteration, Final, Verbose})
@@ -69,17 +68,12 @@ function display_final(::Union{Final, Iteration, Verbose}, result)
     @printf "  Termination reason:    %s\n" result.termination_reason
 end
 
-# ────────────────────────────────────────────────────────────────────────────
-# Debug display methods
-# ────────────────────────────────────────────────────────────────────────────
-
 function display_header(::Debug)
     println("═"^72)
     println("  RETRO DEBUG MODE — Detailed iteration diagnostics")
     println("═"^72)
 end
 
-# Compact line is suppressed for Debug; display_debug_info handles everything.
 display_iteration(::Debug, iter, f, g_norm, Delta, rho, status) = nothing
 
 function display_final(::Debug, result)
@@ -94,8 +88,6 @@ function display_final(::Debug, result)
     @printf "  Termination reason:    %s\n" result.termination_reason
     println("═"^72)
 end
-
-# ── Initial state (called once before the loop) ──────────────────────────
 
 display_debug_initial(::AbstractDisplayMode, args...) = nothing
 
@@ -112,8 +104,6 @@ function display_debug_initial(::Debug, x, f, g, g_norm, Delta)
     println("└", "─"^71)
 end
 
-# ── Per-iteration diagnostics ─────────────────────────────────────────────
-
 display_debug_info(::AbstractDisplayMode, args...; kwargs...) = nothing
 
 function display_debug_info(
@@ -129,7 +119,6 @@ function display_debug_info(
     println("┌", hdr, "─"^max(0, 71 - length(hdr) - 1))
     println("│")
 
-    # ── Current state ──
     println("│ State:")
     _debug_print_vec("│   x", x)
     @printf "│   f(x)       = %.10e\n" f_current
@@ -138,7 +127,6 @@ function display_debug_info(
     @printf "│   Δ          = %.10e\n" Delta_old
     println("│")
 
-    # ── Step ──
     println("│ Step:")
     _debug_print_vec("│   p", p)
     _debug_print_vec("│   x_trial", x_trial)
@@ -148,7 +136,6 @@ function display_debug_info(
     @printf "│   pᵀHp       = %.10e\n" p_dot_Hp
     println("│")
 
-    # ── Reduction analysis ──
     println("│ Reduction:")
     @printf "│   pred_red    = %.10e   (−gᵀp − ½ pᵀHp)\n" pred_red
     @printf "│   actual_red  = %.10e   (f − f_trial)\n" actual_red
@@ -156,14 +143,13 @@ function display_debug_info(
     @printf "│   ρ           = %+.10f\n" rho
 
     if pred_red ≤ 0
-        println("│   ⚠  Predicted reduction ≤ 0 — model not descent!")
+        println("│   ⚠  Predicted reduction ≤ 0 — no improvement!")
     end
     if actual_red < 0
         println("│   ⚠  Actual reduction < 0 — objective INCREASED by $(@sprintf("%.6e", -actual_red))")
     end
     println("│")
 
-    # ── Decision ──
     println("│ Decision: ", status)
     @printf "│   ρ = %+.8f   vs   μ = %.4f\n" rho mu
 
@@ -182,8 +168,6 @@ function display_debug_info(
     println("└", "─"^71)
 end
 
-# ── Helper: print a vector compactly ──────────────────────────────────────
-
 function _debug_print_vec(prefix, v)
     n = length(v)
     if n ≤ 8
@@ -196,7 +180,6 @@ function _debug_print_vec(prefix, v)
     end
 end
 
-# Progress meter integration
 mutable struct RetroProgress
     meter::Union{Progress, Nothing}
     display_mode::AbstractDisplayMode
