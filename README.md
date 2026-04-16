@@ -10,7 +10,7 @@ Reflective-bounds Trust Region Optimizer
 
 ![Static Badge](https://img.shields.io/badge/docs-stable-%23d3d3d3?labelColor=white)
 [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://immunosystemsbiology.github.io/Retro.jl/dev)
-[![License](https://img.shields.io/badge/License-BSD--3-green?labelColor=white)](https://github.com/max-de-rooij/Retro.jl/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/License-BSD--3-green?labelColor=white)](https://github.com/ImmunoSystemsBiology/Retro.jl/blob/main/LICENSE)
 [![tests](https://github.com/ImmunoSystemsBiology/Retro.jl/actions/workflows/tests.yml/badge.svg)](https://github.com/ImmunoSystemsBiology/Retro.jl/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/github/ImmunoSystemsBiology/Retro.jl/graph/badge.svg?token=8RN756L53F)](https://codecov.io/github/ImmunoSystemsBiology/Retro.jl)
 
@@ -19,7 +19,7 @@ Retro (REflective-bounds Trust-Region Optimizer): A high-performance Julia packa
 > [!WARNING]
 > The optimizer is still under development, and has not been fully tested, yet. Use with caution.
 >
-> If you find any issues, report them [here](https://github.com/max-de-rooij/Retro.jl/issues)!
+> If you find any issues, report them [here](https://github.com/ImmunoSystemsBiology/Retro.jl/issues)!
 
 ## Features
 
