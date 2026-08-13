@@ -28,7 +28,7 @@ function init_subspace!(::CGSubspace{T}, ::RetroCache{T}) where {T}
     return CGSubspaceState{T}()
 end
 
-function build_subspace!(cg::CGSubspace{T}, state, cache::RetroCache{T}, hess_approx, hess_state, x) where {T}
+function build_subspace!(cg::CGSubspace{T}, state, cache::RetroCache{T}, hess_approx, hess_state, x, Δ::T) where {T}
     n = length(cache.g)
     
     copy!(cache.r, cache.g) 

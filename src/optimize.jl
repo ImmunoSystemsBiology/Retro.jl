@@ -1,6 +1,47 @@
 using LinearAlgebra
 using Printf
 
+const MAX_CONSECUTIVE_REJECTIONS = 10
+const MAX_NONPROGRESS_ITERS = 50
+
+function _projected_or_full_gradient_converged(
+    g::AbstractVector{T},
+    x::AbstractVector{T},
+    prob::RetroProblem,
+    options,
+    has_bounds::Bool,
+) where {T<:Real}
+    if has_bounds
+        pg_norm = projected_gradient_norm(g, x, prob.lb, prob.ub)
+        return pg_norm < options.gtol_a, :gtol
+    end
+    return norm(g) < options.gtol_a, :gtol
+end
+
+function _trial_convergence_reason(
+    rho::T,
+    step_norm::T,
+    k::Int,
+    f_current::T,
+    f_trial::T,
+    grad_trial::AbstractVector{T},
+    options,
+) where {T<:Real}
+    f_abs_change = abs(f_trial - f_current)
+
+    if rho > options.mu && f_abs_change < (options.ftol_a + options.ftol_r * abs(f_current))
+        return true, :ftol
+    end
+    if k > 1 && options.xtol > zero(T) && step_norm < options.xtol
+        return true, :xtol
+    end
+    if norm(grad_trial) <= options.gtol_a
+        return true, :gtol
+    end
+
+    return false, :continue
+end
+
 """
     RetroOptions{T<:Real}
 
@@ -24,6 +65,8 @@ Algorithm parameters for trust-region optimization.
 # Bound Constraint Parameters
 - `theta1::T`: Reflection threshold for bounds (default: 0.1)
 - `theta2::T`: Secondary reflection threshold (default: 0.2)
+- `theta_max::T`: Maximal fraction of a step that may hit bounds before
+    stepping back (Fides-style, default: 0.95)
 
 # Example
 ```julia
@@ -49,6 +92,7 @@ struct RetroOptions{T<:Real}
     # Reflective bounds parameters
     theta1::T
     theta2::T
+    theta_max::T
     
     function RetroOptions{T}(;
         xtol::T = zero(T), 
@@ -63,10 +107,11 @@ struct RetroOptions{T<:Real}
         gamma1::T = T(0.25),
         gamma2::T = T(2.0),
         theta1::T = T(0.1),
-        theta2::T = T(0.2)
+        theta2::T = T(0.2),
+        theta_max::T = T(0.95)
     ) where {T<:Real}
         new{T}(xtol, ftol_a, ftol_r, gtol_a, gtol_r, initial_tr_radius, max_tr_radius,
-               mu, eta, gamma1, gamma2, theta1, theta2)
+               mu, eta, gamma1, gamma2, theta1, theta2, theta_max)
     end
 end
 
@@ -132,6 +177,7 @@ function optimize(
     converged = false
     termination_reason = :maxiter
     consecutive_rejections = 0
+    nonprogress_iters = 0
     f_change = zero(ET) 
     
     display_iteration(display, 0, f_current, g_norm, Delta, 0.0, "Initial")
@@ -139,18 +185,15 @@ function optimize(
     update_progress!(progress, 0, f_current, g_norm, "Starting")
     
     has_bounds = any(isfinite, prob.lb) || any(isfinite, prob.ub)
-    
-    for k in 1:maxiter
 
-        converged, termination_reason = check_convergence(cache.g, cache.p, f_change, options)
-        
-        if !converged && has_bounds
-            pg_norm = projected_gradient_norm(cache.g, x, prob.lb, prob.ub)
-            if pg_norm < options.gtol_a
-                converged = true
-                termination_reason = :gtol
-            end
-        end
+    for k in 1:maxiter
+        converged, termination_reason = _projected_or_full_gradient_converged(
+            cache.g,
+            x,
+            prob,
+            options,
+            has_bounds,
+        )
         
         if converged
             return imdone(cache, x, progress, display, k, f_current, termination_reason)
@@ -170,43 +213,89 @@ function optimize(
             )
             
             compute_hv_product!(cache.tmp, hessian_approximation, hessian_state, cache, cache.p)
-            pred_red = predicted_reduction(cache.g, cache.p, cache.tmp)
+            pred_red = if has_bounds
+                cache.pred_red_model > zero(ET) ? cache.pred_red_model :
+                    predicted_reduction_bounded(cache.g, cache.p, cache.tmp, cache.d, cache.scaling)
+            else
+                predicted_reduction(cache.g, cache.p, cache.tmp)
+            end
             
             f_trial = value_and_gradient!(cache.r, cache, prob.objective, cache.x_trial)
-            actual_red = actual_reduction(f_current, f_trial)
+            actual_red = actual_reduction(
+                f_current,
+                f_trial,
+                cache.p,
+                cache.r,
+                cache.d,
+                cache.scaling,
+            )
             
-            # Trust-region ratio. If model predicts no decrease, force rejection.
             rho = if pred_red > eps(ET)
                 actual_red / pred_red
             else
-                -ET(Inf)
+                0.0
             end
-            
+
+            converged_trial, trial_reason = _trial_convergence_reason(
+                rho,
+                step_norm,
+                k,
+                f_current,
+                f_trial,
+                cache.r,
+                options,
+            )
+
             g_dot_p  = dot(cache.g, cache.p)
             p_dot_Hp = dot(cache.p, cache.tmp)
             f_before = f_current
             g_norm_before = g_norm
             
-            # Accept only when both model and objective improve.
-            if pred_red > eps(ET) && actual_red > zero(ET) && accept_step(rho, options.mu)
+            if rho > 0.0
                 f_prev = f_current
                 copy!(x, cache.x_trial)
                 f_current = f_trial
                 copy!(cache.g, cache.r)
                 g_norm = norm(cache.g)
                 f_change = abs(f_prev - f_current)
+
+   
+                x_scale = max(norm(x), one(ET))
+                tiny_step_tol = max(sqrt(eps(ET)) * x_scale, options.xtol > zero(ET) ? options.xtol : zero(ET))
+                tiny_step = step_norm <= tiny_step_tol
+
+                rel_f_impr = f_change / max(abs(f_prev), one(ET))
+                tiny_impr_tol = max(sqrt(eps(ET)), options.ftol_r)
+                tiny_impr = rel_f_impr <= tiny_impr_tol
+
+                if tiny_step && tiny_impr && rho < options.eta
+                    nonprogress_iters += 1
+                else
+                    nonprogress_iters = 0
+                end
                 
                 consecutive_rejections = 0
                 status = "Accepted"
                 
             else
                 consecutive_rejections += 1
+                nonprogress_iters = 0
                 status = "Rejected"
                 
-                if consecutive_rejections > 10
+                if consecutive_rejections > MAX_CONSECUTIVE_REJECTIONS
                     termination_reason = :stagnation
                     return imdone(cache, x, progress, display, k, f_current, termination_reason)
                 end
+            end
+
+            if converged_trial
+                termination_reason = trial_reason
+                return imdone(cache, x, progress, display, k, f_current, termination_reason)
+            end
+
+            if nonprogress_iters >= MAX_NONPROGRESS_ITERS
+                termination_reason = :stagnation
+                return imdone(cache, x, progress, display, k, f_current, termination_reason)
             end
 
             Delta_old = Delta

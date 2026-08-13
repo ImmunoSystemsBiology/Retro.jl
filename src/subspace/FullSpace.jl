@@ -21,8 +21,15 @@ function init_subspace!(::FullSpace, cache::RetroCache{T}) where {T}
     return FullSpaceState{T}(n)
 end
 
-function build_subspace!(::FullSpace, state, cache::RetroCache{T}, hess_approx, hess_state, x) where {T}
+function build_subspace!(::FullSpace, state, cache::RetroCache{T}, hess_approx, hess_state, x, Δ::T) where {T}
     n = state.n
+
+    # ExactHessian already stores the full matrix; reuse it directly.
+    if hess_approx isa ExactHessian && hasproperty(hess_state, :H) &&
+       size(getproperty(hess_state, :H)) == size(state.H)
+        copy!(state.H, getproperty(hess_state, :H))
+        return
+    end
 
     for i in 1:n
         fill!(cache.tmp, zero(T))

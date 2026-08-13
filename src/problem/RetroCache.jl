@@ -44,6 +44,12 @@ mutable struct RetroCache{T<:Real}
 
     B::Matrix{T}
     Bs::Vector{T} 
+    B_save::Matrix{T}
+    g_save::Vector{T}
+    x_work::Vector{T}
+    x_trunc::Vector{T}
+    x_cauchy::Vector{T}
+    pred_red_model::T
 
     f_calls::Int
     g_calls::Int
@@ -57,6 +63,9 @@ mutable struct RetroCache{T<:Real}
             zeros(T, n), zeros(T, n),
             zeros(T, n), zeros(T, n),
             Matrix{T}(I, n, n), zeros(T, n),
+            zeros(T, n, n), zeros(T, n),
+            zeros(T, n), zeros(T, n), zeros(T, n),
+            zero(T),
             0, 0, 0
         )
     end

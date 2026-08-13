@@ -230,7 +230,7 @@ function reflect_step!(p::AbstractVector{T}, hit_index::Int, hit_bound::Symbol,
 end
 
 """
-    apply_reflective_bounds!(x_trial, x, p, lb, ub, theta2; 
+    apply_reflective_bounds!(x_trial, x, p, lb, ub, theta; 
                             g=nothing, max_reflections=10)
 
 Apply multiple reflective bounds following Coleman & Li (1994, 1996) and fides.
@@ -246,7 +246,7 @@ and stops reflecting if the boundary is optimal in that direction.
 """
 function apply_reflective_bounds!(x_trial::AbstractVector{T}, x::AbstractVector{T},
                                 p::AbstractVector{T}, lb::AbstractVector{T}, 
-                                ub::AbstractVector{T}, theta2::T;
+                                ub::AbstractVector{T}, theta::T;
                                 g::Union{Nothing, AbstractVector{T}} = nothing,
                                 max_reflections::Int = DEFAULT_MAX_REFLECTIONS) where {T<:Real}
     n = length(x)
@@ -263,8 +263,12 @@ function apply_reflective_bounds!(x_trial::AbstractVector{T}, x::AbstractVector{
             break
         end
         
-        α_step = α_to_bound * (one(T) - T(1e-10)) 
+        α_step = min(one(T), theta * α_to_bound) * (one(T) - T(1e-10))
         @. x_trial = x_trial + α_step * p_remaining
+
+        if α_step < α_to_bound * (one(T) - T(1e-12))
+            break
+        end
         
         α_remaining = one(T) - α_step
         @. p_remaining = α_remaining * p_remaining

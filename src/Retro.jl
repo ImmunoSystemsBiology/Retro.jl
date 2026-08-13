@@ -35,7 +35,7 @@ export RetroResult, is_successful
 include("hessian/BFGS.jl")
 include("hessian/SR1.jl")
 include("hessian/ExactHessian.jl")
-export BFGS, SR1, CustomHessian, init_hessian!, update_hessian!, apply_hessian!, reset_hessian!
+export BFGS, SR1, ExactHessian, init_hessian!, update_hessian!, apply_hessian!, reset_hessian!
 
 # Trust-region solvers
 include("trsolver/EigenTRSolver.jl")
@@ -69,5 +69,7 @@ export Silent, Iteration, Final, Verbose, Debug, display_header, display_iterati
 # Main optimization routine
 include("optimize.jl")
 export RetroOptions, optimize
+
+include("precompile_workload.jl")
 
 end # module Retro

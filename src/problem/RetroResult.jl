@@ -6,7 +6,7 @@ Results from trust-region optimization.
 # Fields
 - `x::VT`: Final solution
 - `fx::T`: Final objective function value
-- `gx::VT`: Final gradient
+- `gx`: Final gradient
 - `iterations::Int`: Number of iterations performed
 - `function_evaluations::Int`: Total function evaluations
 - `gradient_evaluations::Int`: Total gradient evaluations
@@ -22,7 +22,7 @@ Results from trust-region optimization.
 struct RetroResult{T<:Real, VT<:AbstractVector{T}}
     x::VT
     fx::T
-    gx::VT
+    gx
     iterations::Int
     function_evaluations::Int
     gradient_evaluations::Int

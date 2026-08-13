@@ -94,7 +94,7 @@ does the following on every iteration:
 4.  compute_hv_product!(tmp, hess, state, cache, p)
 5.  predicted_reduction(g, p, tmp)
 6.  f_trial = objfunc!(cache, obj, x_trial)
-7.  actual_reduction(f_current, f_trial)
+7.  actual_reduction(f_current, f_trial, p, g_trial, dv)
 8.  ρ = actual / predicted
 
 9.  if accept_step(ρ, μ):

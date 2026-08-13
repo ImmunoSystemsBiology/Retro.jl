@@ -48,55 +48,161 @@ end
 Build the subspace basis vectors and the reduced gradient / Hessian for
 the current iterate `x`.
 """
-function build_subspace!(subspace::TwoDimSubspace, state, cache::RetroCache{T}, hess_approx, hess_state, x) where {T}
-    n = length(cache.g)
-    
-    copy!(cache.v1, cache.g)
-    state.v1_norm = norm(cache.v1)
-    
-    if state.v1_norm < eps(T)
+function build_subspace!(subspace::TwoDimSubspace, state, cache::RetroCache{T}, hess_approx, hess_state, x, Δ::T) where {T}
+    g = cache.g
+    g_norm = norm(g)
+
+    if g_norm < eps(T)
         state.dimension = 0
+        state.g2d = @SVector zeros(T, 2)
+        state.H2d = @SMatrix zeros(T, 2, 2)
         return
     end
-    
-    if subspace.normalize
-        @. cache.v1 /= state.v1_norm
+
+    if hess_approx isa SR1
+        copy!(cache.v1, g)
+        v1_norm = norm(cache.v1)
+        if v1_norm < eps(T)
+            state.dimension = 0
+            state.g2d = @SVector zeros(T, 2)
+            state.H2d = @SMatrix zeros(T, 2, 2)
+            return
+        end
+        @. cache.v1 /= v1_norm
+
+        solve_newton_direction!(cache.v2, hess_approx, hess_state, cache, g)
+        v1_dot_v2 = dot(cache.v1, cache.v2)
+        @. cache.v2 -= v1_dot_v2 * cache.v1
+        v2_norm = norm(cache.v2)
+
+        if v2_norm < eps(T) * v1_norm
+            state.dimension = 1
+            state.v1_norm = one(T)
+            state.v2_norm = zero(T)
+            state.g2d = SVector{2,T}(v1_norm, zero(T))
+            H11 = dot(cache.v1, cache.B, cache.v1)
+            state.H2d = SMatrix{2,2,T}(H11, zero(T), zero(T), one(T))
+            return
+        end
+
+        @. cache.v2 /= v2_norm
+        state.dimension = 2
+        state.v1_norm = one(T)
+        state.v2_norm = one(T)
+
+        g1 = dot(g, cache.v1)
+        g2 = dot(g, cache.v2)
+        apply_hessian!(cache.tmp, hess_approx, hess_state, cache, cache.v1)
+        H11 = dot(cache.v1, cache.tmp)
+        apply_hessian!(cache.tmp, hess_approx, hess_state, cache, cache.v2)
+        H12 = dot(cache.v1, cache.tmp)
+        H22 = dot(cache.v2, cache.tmp)
+        state.g2d = SVector{2,T}(g1, g2)
+        state.H2d = SMatrix{2,2,T}(H11, H12, H12, H22)
+        return
     end
 
-    solve_newton_direction!(cache.v2, hess_approx, hess_state, cache, cache.g)
-    state.v2_norm = norm(cache.v2)
-    
-    v1_dot_v2 = dot(cache.v1, cache.v2)
-    @. cache.v2 -= v1_dot_v2 * cache.v1
-    
-    v2_norm_ortho = norm(cache.v2)
-    
-    if v2_norm_ortho < eps(T) * state.v1_norm
+    B = cache.B
+    posdef = false
+    try
+        cholesky(Symmetric(B); check = true)
+        posdef = true
+    catch
+        posdef = false
+    end
+
+    try
+        F = cholesky(Symmetric(B), check = false)
+        if issuccess(F)
+            cache.v1 .= -(F \ g)
+        else
+            cache.v1 .= -(B \ g)
+        end
+    catch
+        @. cache.v1 = -g
+    end
+    s_newt_norm = norm(cache.v1)
+
+    if posdef
+        if s_newt_norm < Δ
+            if s_newt_norm < eps(T)
+                state.dimension = 0
+                state.g2d = @SVector zeros(T, 2)
+                state.H2d = @SMatrix zeros(T, 2, 2)
+                return
+            end
+
+            @. cache.v1 /= s_newt_norm
+            state.dimension = 1
+            state.v1_norm = one(T)
+            state.v2_norm = zero(T)
+            g1 = dot(g, cache.v1)
+            H11 = dot(cache.v1, B, cache.v1)
+            state.g2d = SVector{2,T}(g1, zero(T))
+            state.H2d = SMatrix{2,2,T}(H11, zero(T), zero(T), one(T))
+            return
+        end
+
+        copy!(cache.v2, g)
+    else
+        eig = eigen(Symmetric(B))
+        imin = argmin(eig.values)
+        @views cache.v1 .= eig.vectors[:, imin]
+
+        has_scaling = true
+        @inbounds for i in eachindex(cache.scaling)
+            if cache.scaling[i] <= zero(T)
+                has_scaling = false
+                break
+            end
+        end
+
+        if has_scaling
+            @inbounds for i in eachindex(g)
+                sgn = g[i] == zero(T) ? one(T) : sign(g[i])
+                cache.v2[i] = cache.scaling[i] * sgn
+            end
+        else
+            copy!(cache.v2, g)
+        end
+    end
+
+    v1_norm = norm(cache.v1)
+    if v1_norm < eps(T)
+        state.dimension = 0
+        state.g2d = @SVector zeros(T, 2)
+        state.H2d = @SMatrix zeros(T, 2, 2)
+        return
+    end
+    @. cache.v1 /= v1_norm
+
+    proj = dot(cache.v2, cache.v1)
+    @. cache.v2 = cache.v2 - proj * cache.v1
+    v2_norm = norm(cache.v2)
+
+    if v2_norm <= sqrt(eps(T))
         state.dimension = 1
-        state.g2d = SVector{2,T}(state.v1_norm, zero(T))
-        state.H2d = SMatrix{2,2,T}(state.v1_norm, zero(T), zero(T), one(T))
+        state.v1_norm = one(T)
+        state.v2_norm = zero(T)
+        g1 = dot(g, cache.v1)
+        H11 = dot(cache.v1, B, cache.v1)
+        state.g2d = SVector{2,T}(g1, zero(T))
+        state.H2d = SMatrix{2,2,T}(H11, zero(T), zero(T), one(T))
         return
     end
-    
-    if subspace.normalize
-        @. cache.v2 /= v2_norm_ortho
-        state.v2_norm = v2_norm_ortho
-    end
-    
+
+    @. cache.v2 /= v2_norm
     state.dimension = 2
-    
-    g1 = dot(cache.g, cache.v1)
-    g2 = dot(cache.g, cache.v2)
+    state.v1_norm = one(T)
+    state.v2_norm = one(T)
+
+    g1 = dot(g, cache.v1)
+    g2 = dot(g, cache.v2)
+    H11 = dot(cache.v1, B, cache.v1)
+    H12 = dot(cache.v1, B, cache.v2)
+    H22 = dot(cache.v2, B, cache.v2)
+
     state.g2d = SVector{2,T}(g1, g2)
-
-    apply_hessian!(cache.tmp, hess_approx, hess_state, cache, cache.v1)
-    H11 = dot(cache.v1, cache.tmp)
-
-    apply_hessian!(cache.tmp, hess_approx, hess_state, cache, cache.v2)
-    H12 = dot(cache.v1, cache.tmp)
-
-    H22 = dot(cache.v2, cache.tmp)
-    
     state.H2d = SMatrix{2,2,T}(H11, H12, H12, H22)
 end
 
@@ -111,7 +217,12 @@ function solve_subspace_tr!(solver, subspace::TwoDimSubspace, state, cache::Retr
         fill!(cache.p, zero(T))
         return zero(T)
     elseif state.dimension == 1
-        α = -state.g2d[1] / state.H2d[1,1]
+        denom = state.H2d[1,1]
+        if abs(denom) > eps(T)
+            α = -state.g2d[1] / denom
+        else
+            α = -sign(state.g2d[1]) * Δ
+        end
         
         if subspace.normalize
             α = clamp(α, -Δ, Δ)
@@ -123,7 +234,6 @@ function solve_subspace_tr!(solver, subspace::TwoDimSubspace, state, cache::Retr
             return abs(α) * state.v1_norm
         end
     else
-
         solve_tr_2d!(solver, state.g2d, state.H2d, Δ, state)
 
         @. cache.p = state.p2d[1] * cache.v1 + state.p2d[2] * cache.v2
@@ -132,107 +242,19 @@ function solve_subspace_tr!(solver, subspace::TwoDimSubspace, state, cache::Retr
 end
 
 function solve_tr_2d!(::EigenTRSolver, g2d::SVector{2,T}, H2d::SMatrix{2,2,T,4}, Δ::T, state) where {T}
-    _solve_tr_2d_eigen!(g2d, H2d, Δ, state)
+    H = Matrix{T}(H2d)
+    ptmp = zeros(T, 2)
+    _ = solve_tr!(EigenTRSolver{T}(), collect(g2d), H, Δ, ptmp)
+    state.p2d = SVector{2,T}(ptmp[1], ptmp[2])
 end
 
 function solve_tr_2d!(::CauchyTRSolver, g2d::SVector{2,T}, H2d::SMatrix{2,2,T,4}, Δ::T, state) where {T}
-    g_norm = norm(g2d)
-    if g_norm < eps(T)
-        state.p2d = @SVector zeros(T, 2)
-        return
-    end
-
-    gHg = dot(g2d, H2d, g2d)
-    if gHg > eps(T)
-        α = min(g_norm^2 / gHg, Δ / g_norm)
-    else
-        α = Δ / g_norm
-    end
-    
-    state.p2d = -α * g2d
+    H = Matrix{T}(H2d)
+    ptmp = zeros(T, 2)
+    _ = solve_tr!(CauchyTRSolver(), collect(g2d), H, Δ, ptmp)
+    state.p2d = SVector{2,T}(ptmp[1], ptmp[2])
 end
 
 function solve_tr_2d!(::AbstractTRSolver, g2d::SVector{2,T}, H2d::SMatrix{2,2,T,4}, Δ::T, state) where {T}
-    _solve_tr_2d_eigen!(g2d, H2d, Δ, state)
-end
-
-function _solve_tr_2d_eigen!(g2d::SVector{2,T}, H2d::SMatrix{2,2,T,4}, Δ::T, state) where {T}
-    g_norm = norm(g2d)
-    if g_norm < eps(T)
-        state.p2d = @SVector zeros(T, 2)
-        return
-    end
-    
-    det_H = H2d[1,1] * H2d[2,2] - H2d[1,2]^2
-    
-    if abs(det_H) > eps(T) * max(abs(H2d[1,1]), abs(H2d[2,2]))^2
-        H_inv = SMatrix{2,2,T}(H2d[2,2], -H2d[1,2], -H2d[1,2], H2d[1,1]) / det_H
-        p_newton = -H_inv * g2d
-        newton_norm = norm(p_newton)
-        
-        if newton_norm <= Δ
-            if H2d[1,1] > zero(T) && det_H > zero(T)
-                state.p2d = p_newton
-                return
-            end
-        end
-    end
-
-    trace_H = H2d[1,1] + H2d[2,2]
-    discriminant = trace_H^2 - 4 * det_H
-    
-    if discriminant < zero(T)
-        discriminant = zero(T)
-    end
-    
-    sqrt_disc = sqrt(discriminant)
-    λ1 = (trace_H - sqrt_disc) / 2 
-    λ2 = (trace_H + sqrt_disc) / 2 
-
-    if abs(H2d[1,2]) > eps(T)
-        v1_raw = SVector{2,T}(H2d[1,2], λ1 - H2d[1,1])
-        v1 = v1_raw / norm(v1_raw)
-        v2 = SVector{2,T}(-v1[2], v1[1])
-    elseif abs(H2d[1,1] - λ1) < abs(H2d[2,2] - λ1)
-        v1 = SVector{2,T}(one(T), zero(T))
-        v2 = SVector{2,T}(zero(T), one(T))
-    else
-        v1 = SVector{2,T}(zero(T), one(T))
-        v2 = SVector{2,T}(one(T), zero(T))
-    end
-
-    g1 = dot(g2d, v1)
-    g2 = dot(g2d, v2)
-    
-    λ_min = max(-λ1, zero(T)) + eps(T)
-    λ_max = max(g_norm / Δ, abs(λ1), abs(λ2)) * 10
-    
-    for _ in 1:20
-        λ_mid = (λ_min + λ_max) / 2
-        
-        denom1 = λ1 + λ_mid
-        denom2 = λ2 + λ_mid
-        
-        p1 = abs(denom1) > eps(T) ? g1 / denom1 : sign(g1) * Δ * 10
-        p2 = abs(denom2) > eps(T) ? g2 / denom2 : sign(g2) * Δ * 10
-        
-        p_norm_sq = p1^2 + p2^2
-        
-        if p_norm_sq > Δ^2
-            λ_min = λ_mid  
-        else
-            λ_max = λ_mid 
-        end
-    end
-
-    λ_opt = (λ_min + λ_max) / 2
-    p1 = abs(λ1 + λ_opt) > eps(T) ? -g1 / (λ1 + λ_opt) : zero(T)
-    p2 = abs(λ2 + λ_opt) > eps(T) ? -g2 / (λ2 + λ_opt) : zero(T)
-
-    state.p2d = p1 * v1 + p2 * v2
-
-    p_norm = norm(state.p2d)
-    if p_norm > eps(T) && p_norm < Δ * 0.99
-        state.p2d = state.p2d * (Δ / p_norm)
-    end
+    solve_tr_2d!(EigenTRSolver{T}(), g2d, H2d, Δ, state)
 end
