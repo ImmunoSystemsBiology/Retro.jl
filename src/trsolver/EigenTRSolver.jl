@@ -17,10 +17,6 @@ end
 
 EigenTRSolver(; kwargs...) = EigenTRSolver{Float64}(; kwargs...)
 
-# ============================================================================
-# Secular equation helpers
-# ============================================================================
-
 function _secular_norm_sq(λ::AbstractVector{T}, g_eigen::AbstractVector{T}, σ::T, n::Int) where {T}
     norm_sq = zero(T)
     for i in 1:n

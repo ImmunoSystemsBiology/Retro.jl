@@ -35,7 +35,8 @@ export RetroResult, is_successful
 include("hessian/BFGS.jl")
 include("hessian/SR1.jl")
 include("hessian/ExactHessian.jl")
-export BFGS, SR1, ExactHessian, init_hessian!, update_hessian!, apply_hessian!, reset_hessian!
+include("hessian/CustomHessian.jl")
+export BFGS, SR1, ExactHessian, CustomHessian, init_hessian!, update_hessian!, apply_hessian!, reset_hessian!
 
 # Trust-region solvers
 include("trsolver/EigenTRSolver.jl")
@@ -62,13 +63,9 @@ include("steps/TrustRegionStep.jl")
 export compute_trust_region_step!, compute_hv_product!, check_negative_curvature,
        assess_model_quality
 
-# Utilities
-include("utils/LinearAlgebraHelpers.jl") 
-include("utils/Norms.jl")
+# Display modes
 include("utils/Displays.jl")
-export safe_norm, safe_dot, safe_cond, is_positive_definite, smallest_eigenvalue,
-       norm_inf, norm_weighted, norm_relative, norm_scaled, trust_region_norm, gradient_norm,
-       Silent, Iteration, Final, Verbose, Debug, display_header, display_iteration, display_final
+export Silent, Iteration, Final, Verbose, Debug, display_header, display_iteration, display_final
 
 # Main optimization routine
 include("optimize.jl")

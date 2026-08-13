@@ -30,10 +30,6 @@ Random.seed!(1234)
         include("ode.jl")
     end
 
-        @testset "Utility Functions" begin
-            include("utils.jl")
-        end
-
         @testset "TR Solver Unit Tests" begin
             include("trsolver.jl")
         end

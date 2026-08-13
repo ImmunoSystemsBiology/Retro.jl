@@ -8,7 +8,6 @@ Fast but potentially less accurate than other methods.
 struct CauchyTRSolver <: AbstractTRSolver
 end
 
-# Solve trust-region subproblem using Cauchy point
 function solve_tr!(::CauchyTRSolver, g::AbstractVector{T}, H::AbstractMatrix{T}, Delta::T, p::AbstractVector{T}) where {T}
     g_norm = norm(g)
     

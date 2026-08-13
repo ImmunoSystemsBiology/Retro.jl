@@ -18,7 +18,6 @@ Implementation follows fides: allows arbitrarily many reflections until the firs
 local minimum. In contrast, fmincon/lsqnonlin/ls_trf allow only a single reflection.
 """
 
-# Default parameters
 const DEFAULT_BOUNDS_EPSILON = 1e-8  # Minimum distance from bounds
 const DEFAULT_MAX_REFLECTIONS = 10   # Maximum number of reflections
 

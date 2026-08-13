@@ -1,7 +1,7 @@
 """
     RetroCache{T<:Real}
 
-Zero-allocation workspace for trust-region optimization.
+Workspace for trust-region optimization.
 Stores all preallocated vectors to avoid heap allocations in inner loops.
 
 # Fields
@@ -22,36 +22,29 @@ Stores all preallocated vectors to avoid heap allocations in inner loops.
 - `scaling::Vector{T}`: Diagonal scaling matrix for bounds
 """
 mutable struct RetroCache{T<:Real}
-    # Basic vectors
     x_trial::Vector{T}
     g::Vector{T}
     p::Vector{T}
     g_prev::Vector{T}
     x_prev::Vector{T}
 
-    # CG subspace vectors
     r::Vector{T}
     d::Vector{T}
     Hd::Vector{T}
 
-    # Quasi-Newton vectors
     s::Vector{T}
     y::Vector{T}
     tmp::Vector{T}
 
-    # Subspace basis vectors
     v1::Vector{T}
     v2::Vector{T}
 
-    # Bound constraint vectors
     scaled_g::Vector{T}
     scaling::Vector{T}
 
-    # Quasi-Newton Hessian approximation matrix
     B::Matrix{T}
-    Bs::Vector{T}  # Workspace for B*s
+    Bs::Vector{T} 
 
-    # Counters
     f_calls::Int
     g_calls::Int
     h_calls::Int
@@ -63,7 +56,7 @@ mutable struct RetroCache{T<:Real}
             zeros(T, n), zeros(T, n), zeros(T, n),
             zeros(T, n), zeros(T, n),
             zeros(T, n), zeros(T, n),
-            Matrix{T}(I, n, n), zeros(T, n),  # B initialized to identity
+            Matrix{T}(I, n, n), zeros(T, n),
             0, 0, 0
         )
     end

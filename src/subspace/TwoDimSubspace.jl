@@ -205,7 +205,7 @@ function _solve_tr_2d_eigen!(g2d::SVector{2,T}, H2d::SMatrix{2,2,T,4}, Δ::T, st
     g2 = dot(g2d, v2)
     
     λ_min = max(-λ1, zero(T)) + eps(T)
-    λ_max = max(g_norm / Δ, abs(λ1), abs(λ2)) * 10  # Upper bound
+    λ_max = max(g_norm / Δ, abs(λ1), abs(λ2)) * 10
     
     for _ in 1:20
         λ_mid = (λ_min + λ_max) / 2

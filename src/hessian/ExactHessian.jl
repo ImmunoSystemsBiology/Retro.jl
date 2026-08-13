@@ -1,7 +1,7 @@
 """
     ExactHessian{T} <: AbstractHessianApproximation
 
-Exact Hessian computed via automatic differentiation (or user-supplied analytic Hessian).
+Exact Hessian computed via automatic differentiation.
 Adds a small diagonal regularization to improve conditioning.
 
 Best for small-to-medium problems where the full Hessian is affordable.
