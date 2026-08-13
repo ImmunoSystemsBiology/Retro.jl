@@ -35,8 +35,7 @@ export RetroResult, is_successful
 include("hessian/BFGS.jl")
 include("hessian/SR1.jl")
 include("hessian/ExactHessian.jl")
-include("hessian/CustomHessian.jl")
-export BFGS, SR1, ExactHessian, CustomHessian, init_hessian!, update_hessian!, apply_hessian!, reset_hessian!
+export BFGS, SR1, CustomHessian, init_hessian!, update_hessian!, apply_hessian!, reset_hessian!
 
 # Trust-region solvers
 include("trsolver/EigenTRSolver.jl")
