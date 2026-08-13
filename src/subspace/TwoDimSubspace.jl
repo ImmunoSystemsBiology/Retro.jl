@@ -242,17 +242,136 @@ function solve_subspace_tr!(solver, subspace::TwoDimSubspace, state, cache::Retr
 end
 
 function solve_tr_2d!(::EigenTRSolver, g2d::SVector{2,T}, H2d::SMatrix{2,2,T,4}, Δ::T, state) where {T}
-    H = Matrix{T}(H2d)
-    ptmp = zeros(T, 2)
-    _ = solve_tr!(EigenTRSolver{T}(), collect(g2d), H, Δ, ptmp)
-    state.p2d = SVector{2,T}(ptmp[1], ptmp[2])
+    g1 = g2d[1]
+    g2 = g2d[2]
+    a = H2d[1, 1]
+    b = H2d[1, 2]
+    c = H2d[2, 2]
+
+    if abs(g1) <= eps(T) && abs(g2) <= eps(T)
+        state.p2d = zero(SVector{2, T})
+        return zero(T)
+    end
+
+    # Closed-form eigendecomposition for a symmetric 2×2 matrix.
+    trace = a + c
+    delta = a - c
+    disc = hypot(delta, T(2) * b)
+    λ1 = T(0.5) * (trace + disc)
+    λ2 = T(0.5) * (trace - disc)
+
+    if abs(b) <= eps(T)
+        v1x, v1y = one(T), zero(T)
+        v2x, v2y = zero(T), one(T)
+        if a < c
+            v1x, v1y = zero(T), one(T)
+            v2x, v2y = one(T), zero(T)
+        end
+    else
+        v1x = b
+        v1y = λ1 - a
+        n1 = hypot(v1x, v1y)
+        if n1 <= eps(T)
+            v1x, v1y = one(T), zero(T)
+            n1 = one(T)
+        else
+            v1x /= n1
+            v1y /= n1
+        end
+
+        v2x = b
+        v2y = λ2 - a
+        n2 = hypot(v2x, v2y)
+        if n2 <= eps(T)
+            v2x, v2y = zero(T), one(T)
+            n2 = one(T)
+        else
+            v2x /= n2
+            v2y /= n2
+        end
+    end
+
+    g1e = v1x * g1 + v1y * g2
+    g2e = v2x * g1 + v2y * g2
+
+    # Fast unconstrained check: if all eigenvalues are positive and the step is already inside the trust region,
+    # no secular solve is needed.
+    if λ1 > eps(T) && λ2 > eps(T)
+        p1 = -g1e / λ1
+        p2 = -g2e / λ2
+        p_norm_sq = p1 * p1 + p2 * p2
+        if p_norm_sq <= Δ * Δ
+            p1v = v1x * p1 + v2x * p2
+            p2v = v1y * p1 + v2y * p2
+            state.p2d = SVector{2, T}(p1v, p2v)
+            return sqrt(p_norm_sq)
+        end
+    end
+
+    λ_min = min(λ1, λ2)
+    σ_lo = max(zero(T), -λ_min + T(1e-8))
+    σ_hi = max(σ_lo + one(T), one(T))
+
+    function secular_norm_sq(σ::T)
+        denom1 = λ1 + σ
+        denom2 = λ2 + σ
+        return (g1e / denom1)^2 + (g2e / denom2)^2
+    end
+
+    while sqrt(secular_norm_sq(σ_hi)) >= Δ
+        σ_hi *= T(2)
+        if σ_hi > T(1e12)
+            break
+        end
+    end
+
+    for _ in 1:80
+        σ_mid = (σ_lo + σ_hi) / T(2)
+        f_mid = sqrt(secular_norm_sq(σ_mid)) - Δ
+        if abs(f_mid) <= T(1e-12) * max(Δ, one(T))
+            σ_hi = σ_mid
+            break
+        end
+        if f_mid > zero(T)
+            σ_lo = σ_mid
+        else
+            σ_hi = σ_mid
+        end
+    end
+
+    σ = (σ_lo + σ_hi) / T(2)
+    q1 = -g1e / (λ1 + σ)
+    q2 = -g2e / (λ2 + σ)
+    p1v = v1x * q1 + v2x * q2
+    p2v = v1y * q1 + v2y * q2
+    state.p2d = SVector{2, T}(p1v, p2v)
+    return hypot(p1v, p2v)
 end
 
 function solve_tr_2d!(::CauchyTRSolver, g2d::SVector{2,T}, H2d::SMatrix{2,2,T,4}, Δ::T, state) where {T}
-    H = Matrix{T}(H2d)
-    ptmp = zeros(T, 2)
-    _ = solve_tr!(CauchyTRSolver(), collect(g2d), H, Δ, ptmp)
-    state.p2d = SVector{2,T}(ptmp[1], ptmp[2])
+    g_norm = hypot(g2d[1], g2d[2])
+    if g_norm <= eps(T)
+        state.p2d = zero(SVector{2, T})
+        return zero(T)
+    end
+
+    a = H2d[1, 1]
+    b = H2d[1, 2]
+    c = H2d[2, 2]
+    g1 = g2d[1]
+    g2 = g2d[2]
+    gHg = a * g1 * g1 + T(2) * b * g1 * g2 + c * g2 * g2
+
+    if gHg > eps(T)
+        α = min(g_norm^2 / gHg, Δ / g_norm)
+    else
+        α = Δ / g_norm
+    end
+
+    p1 = -α * g1
+    p2 = -α * g2
+    state.p2d = SVector{2, T}(p1, p2)
+    return α * g_norm
 end
 
 function solve_tr_2d!(::AbstractTRSolver, g2d::SVector{2,T}, H2d::SMatrix{2,2,T,4}, Δ::T, state) where {T}

@@ -1,6 +1,7 @@
 using Retro
 using Test
 using LinearAlgebra
+using StaticArrays
 
 @testset "Rosenbrock Problem" begin
     # Classic test problem: f(x,y) = 100*(y - x^2)^2 + (1 - x)^2
@@ -94,6 +95,15 @@ using LinearAlgebra
         @test result.fx < 1e-4
     end
     
+    @testset "2D TR solve stays allocation-light" begin
+        g = SVector{2,Float64}(1.0, -2.0)
+        H = SMatrix{2,2,Float64}(2.0, 0.0, 0.0, 1.0)
+        state = Retro.TwoDimSubspaceState{Float64}()
+
+        allocs = @allocated Retro.solve_tr_2d!(Retro.EigenTRSolver{Float64}(), g, H, 1.0, state)
+        @test allocs < 200
+    end
+
     @testset "Different TR Solvers" begin
         x0 = [-1.2, 1.0]
         prob = RetroProblem(rosenbrock, x0, AutoForwardDiff())
